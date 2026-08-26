@@ -220,8 +220,35 @@ void appendDeviation(std::string& output,
     appendNumberMember(output, "maximumMm", deviation.maximumMm);
     appendNumberMember(output, "meanMm", deviation.meanMm);
     appendNumberMember(output, "rmsMm", deviation.rmsMm);
-    appendNumberMember(output, "percentile95Mm", deviation.percentile95Mm,
-                       false);
+    appendNumberMember(output, "percentile95Mm", deviation.percentile95Mm);
+    appendUnsignedMember(output, "sampleCount", deviation.sampleCount);
+    appendUnsignedMember(output, "triangleDistanceEvaluations",
+                         deviation.triangleDistanceEvaluations, false);
+    output.push_back('}');
+}
+
+void appendExecution(std::string& output,
+                     const ExecutionMetadata& execution) {
+    output.push_back('{');
+    appendStringMember(output, "status", execution.status);
+    appendStringMember(output, "terminalPhase", execution.terminalPhase);
+    appendBoolMember(output, "cancellationRequested",
+                     execution.cancellationRequested);
+    appendBoolMember(output, "allRequiredEvidenceComplete",
+                     execution.allRequiredEvidenceComplete, false);
+    output.push_back('}');
+}
+
+void appendCache(std::string& output, const CacheMetadata& cache) {
+    output.push_back('{');
+    appendBoolMember(output, "enabled", cache.enabled);
+    appendBoolMember(output, "hit", cache.hit);
+    appendStringMember(output, "key", cache.key);
+    appendUnsignedMember(output, "hits", cache.hits);
+    appendUnsignedMember(output, "misses", cache.misses);
+    appendUnsignedMember(output, "evictions", cache.evictions);
+    appendUnsignedMember(output, "usedBytes", cache.usedBytes);
+    appendUnsignedMember(output, "budgetBytes", cache.budgetBytes, false);
     output.push_back('}');
 }
 
@@ -271,6 +298,12 @@ void appendComponent(std::string& output, const ComponentRow& component) {
     output.push_back(',');
     appendKey(output, "tolerances");
     appendTolerances(output, report.tolerances);
+    output.push_back(',');
+    appendKey(output, "execution");
+    appendExecution(output, report.execution);
+    output.push_back(',');
+    appendKey(output, "cache");
+    appendCache(output, report.cache);
     output.push_back(',');
     appendKey(output, "statisticsA");
     appendGeometryStatistics(output, report.statisticsA);
@@ -470,6 +503,21 @@ void appendStatisticsMetadata(std::string& output, std::string_view prefix,
                    report.tolerances.booleanFuzzyMm);
     appendMetadata(output, "tolerances.relativeProperty",
                    report.tolerances.relativeProperty);
+    appendMetadata(output, "execution.status", report.execution.status);
+    appendMetadata(output, "execution.terminalPhase",
+                   report.execution.terminalPhase);
+    appendMetadata(output, "execution.cancellationRequested",
+                   report.execution.cancellationRequested ? "true" : "false");
+    appendMetadata(output, "execution.allRequiredEvidenceComplete",
+                   report.execution.allRequiredEvidenceComplete ? "true" : "false");
+    appendMetadata(output, "cache.enabled", report.cache.enabled ? "true" : "false");
+    appendMetadata(output, "cache.hit", report.cache.hit ? "true" : "false");
+    appendMetadata(output, "cache.key", report.cache.key);
+    appendMetadata(output, "cache.hits", report.cache.hits);
+    appendMetadata(output, "cache.misses", report.cache.misses);
+    appendMetadata(output, "cache.evictions", report.cache.evictions);
+    appendMetadata(output, "cache.usedBytes", report.cache.usedBytes);
+    appendMetadata(output, "cache.budgetBytes", report.cache.budgetBytes);
     appendStatisticsMetadata(output, "statisticsA", report.statisticsA);
     appendStatisticsMetadata(output, "statisticsB", report.statisticsB);
     appendVectorMetadata(output, "placement.translationBMinusAMm",
@@ -496,6 +544,10 @@ void appendStatisticsMetadata(std::string& output, std::string_view prefix,
     appendMetadata(output, "deepDeviation.rmsMm", report.deepDeviation.rmsMm);
     appendMetadata(output, "deepDeviation.percentile95Mm",
                    report.deepDeviation.percentile95Mm);
+    appendMetadata(output, "deepDeviation.sampleCount",
+                   report.deepDeviation.sampleCount);
+    appendMetadata(output, "deepDeviation.triangleDistanceEvaluations",
+                   report.deepDeviation.triangleDistanceEvaluations);
     for (const auto& timing : report.timings) {
         appendMetadata(output, timing.phase, timing.elapsedMilliseconds, "timing");
     }

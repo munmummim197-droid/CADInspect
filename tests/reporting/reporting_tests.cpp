@@ -54,6 +54,24 @@ stepcompare::reporting::Report sampleReport() {
         .meanMm = 0.025,
         .rmsMm = 0.04,
         .percentile95Mm = 0.1,
+        .sampleCount = 128,
+        .triangleDistanceEvaluations = 4096,
+    };
+    report.execution = {
+        .status = "COMPLETED",
+        .terminalPhase = "Surface deviation",
+        .cancellationRequested = false,
+        .allRequiredEvidenceComplete = true,
+    };
+    report.cache = {
+        .enabled = true,
+        .hit = true,
+        .key = "cache-key",
+        .hits = 2,
+        .misses = 1,
+        .evictions = 0,
+        .usedBytes = 2048,
+        .budgetBytes = 4096,
     };
     report.timings.push_back({"STEP import", 12.5});
     report.verdict = {"FAIL", {"SAME_GEOMETRY_POSITION_CHANGED"}};
@@ -92,6 +110,17 @@ void jsonTests() {
            "JSON must encode B-minus-A placement numerically");
     expect(json.find("1234.5") != std::string::npos,
            "JSON must use a decimal point");
+    expect(json.find("\"status\":\"COMPLETED\"") != std::string::npos &&
+               json.find("\"allRequiredEvidenceComplete\":true") !=
+                   std::string::npos,
+           "JSON must expose execution completion semantics");
+    expect(json.find("\"hit\":true") != std::string::npos &&
+               json.find("\"key\":\"cache-key\"") != std::string::npos,
+           "JSON must expose cache evidence");
+    expect(json.find("\"sampleCount\":128") != std::string::npos &&
+               json.find("\"triangleDistanceEvaluations\":4096") !=
+                   std::string::npos,
+           "JSON must expose quantitative deviation evidence counts");
 }
 
 void csvTests() {
@@ -110,6 +139,15 @@ void csvTests() {
            "CSV must include versioned metadata");
     expect(csv.find("component,,,A-1,B-1") != std::string::npos,
            "CSV must include component records");
+    expect(csv.find("metadata,execution.status,COMPLETED") != std::string::npos &&
+               csv.find("metadata,execution.allRequiredEvidenceComplete,true") !=
+                   std::string::npos,
+           "CSV must expose execution completion semantics");
+    expect(csv.find("metadata,cache.hit,true") != std::string::npos &&
+               csv.find("metadata,cache.key,cache-key") != std::string::npos,
+           "CSV must expose cache evidence");
+    expect(csv.find("metadata,deepDeviation.sampleCount,128") != std::string::npos,
+           "CSV must expose deviation sample count");
 }
 
 void localeInvariantTests() {

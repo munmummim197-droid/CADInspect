@@ -4,15 +4,20 @@
 #include "stepcompare/assembly/component_matching.hpp"
 #include "stepcompare/domain/fast_check.hpp"
 #include "stepcompare/domain/placement.hpp"
+#include "stepcompare/cache/cache_key.hpp"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace stepcompare::application {
@@ -367,11 +372,64 @@ void initializeReport(reporting::Report& report,
     report.algorithmVersion = "dev-v1";
     report.inputA.pathUtf8 = utf8Bytes(request.inputAUtf8);
     report.inputB.pathUtf8 = utf8Bytes(request.inputBUtf8);
+    if (request.identityA) {
+        report.inputA.sha256 = request.identityA->sha256Hex;
+        report.inputA.sizeBytes =
+            static_cast<std::uint64_t>(request.identityA->sizeBytes);
+    }
+    if (request.identityB) {
+        report.inputB.sha256 = request.identityB->sha256Hex;
+        report.inputB.sizeBytes =
+            static_cast<std::uint64_t>(request.identityB->sizeBytes);
+    }
     report.tolerances.positionMm = request.tolerances.positionMm;
     report.tolerances.surfaceMm = request.tolerances.surfaceMm;
     report.tolerances.angularDegrees = request.tolerances.angularDegrees;
     report.tolerances.booleanFuzzyMm = request.tolerances.booleanFuzzyMm;
     report.tolerances.relativeProperty = request.tolerances.relativeProperty;
+    report.execution.status = "RUNNING";
+    report.execution.terminalPhase = "INITIALIZE";
+}
+
+reporting::DeviationStatistics reportDeviation(
+    const deviation::SurfaceDeviationResult& value) noexcept {
+    reporting::DeviationStatistics result;
+    result.available =
+        value.status == deviation::SurfaceDeviationStatus::WithinTolerance ||
+        value.status == deviation::SurfaceDeviationStatus::DeviationFound;
+    if (result.available) {
+        result.maximumMm = value.maximumMm;
+        result.meanMm = value.meanMm;
+        result.rmsMm = value.rmsMm;
+        result.percentile95Mm = value.percentileMm;
+        result.sampleCount = static_cast<std::uint64_t>(
+            value.samplesAToB + value.samplesBToA);
+        result.triangleDistanceEvaluations = static_cast<std::uint64_t>(
+            value.triangleDistanceEvaluations);
+    }
+    return result;
+}
+
+std::optional<deviation::SurfaceDeviationResult> runDeviation(
+    const ComparisonRequest& request,
+    deviation::SurfaceDeviationPort* port,
+    const import::GeometryPayloadPtr& geometryA,
+    const import::GeometryPayloadPtr& geometryB,
+    const import::RigidTransformMm& transformBToA) {
+    if (port == nullptr || !request.deep) {
+        return std::nullopt;
+    }
+    deviation::SurfaceDeviationRequest deviationRequest;
+    deviationRequest.geometryA = geometryA;
+    deviationRequest.geometryB = geometryB;
+    deviationRequest.transformBToA = transformBToA;
+    deviationRequest.options.toleranceMm = request.tolerances.surfaceMm;
+    deviationRequest.options.meshDeflectionMm =
+        std::max(request.tolerances.surfaceMm * 0.5, 0.001);
+    deviationRequest.isCancelled = [&request] {
+        return request.cancellation.stop_requested();
+    };
+    return port->compare(deviationRequest);
 }
 
 void notifyProgress(const ComparisonRequest& request,
@@ -407,6 +465,9 @@ ComparisonResult cancelledResult(const ComparisonRequest& request,
         {domain::Decision::Check, {domain::ReasonCode::EvidenceIncomplete}};
     result.report.verdict.decision = "CHECK";
     result.report.verdict.reasons = {"CANCELLED"};
+    result.report.execution.status = "CANCELLED";
+    result.report.execution.cancellationRequested = true;
+    result.report.execution.allRequiredEvidenceComplete = false;
     result.diagnostics.push_back(
         {ComparisonDiagnosticCode::Cancelled, "Comparison was cancelled"});
     return result;
@@ -438,14 +499,18 @@ void runSinglePart(const ComparisonRequest& request,
                    const AssemblyIndex& indexA,
                    const AssemblyIndex& indexB,
                    deep::DeepGeometryPort& deepGeometry,
+                   deviation::SurfaceDeviationPort* surfaceDeviation,
                    domain::EvidenceSummary& evidence,
                    reporting::Report& report,
-                   bool& deepFailed) {
+                   bool& deepFailed,
+                   bool& deviationFailed,
+                   bool& surfaceCancelled) {
     const auto& prototypeA = indexA.prototypes.front();
     const auto& prototypeB = indexB.prototypes.front();
     ComponentMatchRow row = singlePartRow(indexA, indexB);
     const auto fast = domain::compareFastInvariants(
         prototypeA.statistics, prototypeB.statistics, request.tolerances);
+    reporting::DeviationStatistics componentDeviation;
 
     std::optional<deep::DeepGeometryResult> deepResult;
     if (fast.status == domain::FastScreenStatus::Different) {
@@ -544,6 +609,43 @@ void runSinglePart(const ComparisonRequest& request,
         report.placement.rotationBToA =
             quaternionFromTransform(deepResult->transformBToA);
     }
+
+    if (request.deep && deepResult && deepResult->alignmentProven) {
+        const auto deviationResult = runDeviation(
+            request,
+            surfaceDeviation,
+            prototypeA.geometry,
+            prototypeB.geometry,
+            deepResult->transformBToA);
+        if (!deviationResult) {
+            deviationFailed = true;
+        } else {
+            componentDeviation = reportDeviation(*deviationResult);
+            report.deepDeviation = componentDeviation;
+            switch (deviationResult->status) {
+            case deviation::SurfaceDeviationStatus::WithinTolerance:
+                break;
+            case deviation::SurfaceDeviationStatus::DeviationFound:
+                evidence.geometry = domain::GeometryStatus::ChangedProven;
+                row.geometryEvidence = GeometryEvidence::DifferentProven;
+                row.resultStatus = ComponentResultStatus::GeometryChanged;
+                break;
+            case deviation::SurfaceDeviationStatus::Cancelled:
+                surfaceCancelled = true;
+                break;
+            case deviation::SurfaceDeviationStatus::NoSurfaceData:
+            case deviation::SurfaceDeviationStatus::Error:
+                deviationFailed = true;
+                row.resultStatus = ComponentResultStatus::Check;
+                break;
+            }
+        }
+    } else if (request.deep &&
+               evidence.geometry == domain::GeometryStatus::SameProven) {
+        // A canonical deep PASS requires quantitative surface evidence.
+        deviationFailed = true;
+        row.resultStatus = ComponentResultStatus::Check;
+    }
     if (explicitOccurrenceMove || rotated) {
         placementKnown = true;
     }
@@ -562,18 +664,25 @@ void runSinglePart(const ComparisonRequest& request,
     evidence.allRequiredStagesComplete =
         evidence.geometry == domain::GeometryStatus::SameProven &&
         evidence.position != domain::PositionStatus::Unknown &&
-        !evidence.alignmentAmbiguous && !deepFailed;
-    report.components.push_back(reportComponent(row, indexA, indexB));
+        !evidence.alignmentAmbiguous && !deepFailed && !deviationFailed &&
+        !surfaceCancelled && report.deepDeviation.available;
+    auto componentReport = reportComponent(row, indexA, indexB);
+    componentReport.deviation = componentDeviation;
+    report.components.push_back(std::move(componentReport));
 }
 
 void runAssembly(const ComparisonRequest& request,
                  const AssemblyIndex& indexA,
                  const AssemblyIndex& indexB,
                  deep::DeepGeometryPort& deepGeometry,
+                 deviation::SurfaceDeviationPort* surfaceDeviation,
                  domain::EvidenceSummary& evidence,
                  reporting::Report& report,
-                 bool& deepFailed) {
+                 bool& deepFailed,
+                 bool& deviationFailed,
+                 bool& surfaceCancelled) {
     bool alignmentAmbiguous = false;
+    std::unordered_map<std::string, deep::DeepGeometryResult> deepResults;
     assembly::MatchingOptions options;
     options.tolerances = request.tolerances;
     if (request.deep) {
@@ -586,6 +695,8 @@ void runAssembly(const ComparisonRequest& request,
                     {request.tolerances.booleanFuzzyMm,
                      request.tolerances.relativeProperty},
                 });
+                deepResults.insert_or_assign(
+                    prototypeA.id + '\x1f' + prototypeB.id, verified);
                 switch (verified.status) {
                 case deep::DeepGeometryStatus::SameGeometry:
                     return assembly::DeepVerification{
@@ -612,6 +723,12 @@ void runAssembly(const ComparisonRequest& request,
     bool anyGeometryChanged = false;
     bool moved = false;
     bool rotated = false;
+    double deviationMeanWeighted{};
+    double deviationRmsSquaredWeighted{};
+    std::uint64_t deviationSamples{};
+    std::uint64_t deviationEvaluations{};
+    double maximumDeviation{};
+    double maximumPercentile95{};
     for (const auto& row : matching.rows) {
         evidence.componentMissing |=
             row.resultStatus == ComponentResultStatus::Missing;
@@ -625,7 +742,76 @@ void runAssembly(const ComparisonRequest& request,
                  row.resultStatus == ComponentResultStatus::MovedAndRotated;
         rotated |= row.resultStatus == ComponentResultStatus::Rotated ||
                    row.resultStatus == ComponentResultStatus::MovedAndRotated;
-        report.components.push_back(reportComponent(row, indexA, indexB));
+        auto componentReport = reportComponent(row, indexA, indexB);
+        const auto* prototypeA = prototypeFor(indexA, row.nodeIdA);
+        const auto* prototypeB = prototypeFor(indexB, row.nodeIdB);
+        if (request.deep && prototypeA != nullptr && prototypeB != nullptr &&
+            row.geometryEvidence == GeometryEvidence::SameProven) {
+            import::RigidTransformMm transformBToA;
+            const auto foundDeep = deepResults.find(
+                prototypeA->id + '\x1f' + prototypeB->id);
+            if (foundDeep != deepResults.end() &&
+                foundDeep->second.alignmentProven) {
+                transformBToA = foundDeep->second.transformBToA;
+            }
+            const auto deviationResult = runDeviation(
+                request,
+                surfaceDeviation,
+                prototypeA->geometry,
+                prototypeB->geometry,
+                transformBToA);
+            if (!deviationResult) {
+                deviationFailed = true;
+                componentReport.geometryStatus = "INCONCLUSIVE";
+                componentReport.positionStatus = "UNKNOWN";
+            } else {
+                componentReport.deviation = reportDeviation(*deviationResult);
+                if (componentReport.deviation.available) {
+                    const auto samples = componentReport.deviation.sampleCount;
+                    deviationSamples += samples;
+                    deviationMeanWeighted +=
+                        deviationResult->meanMm * static_cast<double>(samples);
+                    deviationRmsSquaredWeighted +=
+                        deviationResult->rmsMm * deviationResult->rmsMm *
+                        static_cast<double>(samples);
+                    deviationEvaluations += static_cast<std::uint64_t>(
+                        deviationResult->triangleDistanceEvaluations);
+                    maximumDeviation =
+                        std::max(maximumDeviation, deviationResult->maximumMm);
+                    maximumPercentile95 = std::max(
+                        maximumPercentile95, deviationResult->percentileMm);
+                }
+                switch (deviationResult->status) {
+                case deviation::SurfaceDeviationStatus::WithinTolerance:
+                    break;
+                case deviation::SurfaceDeviationStatus::DeviationFound:
+                    anyGeometryChanged = true;
+                    allGeometrySame = false;
+                    componentReport.geometryStatus = "DIFFERENT_PROVEN";
+                    break;
+                case deviation::SurfaceDeviationStatus::Cancelled:
+                    surfaceCancelled = true;
+                    break;
+                case deviation::SurfaceDeviationStatus::NoSurfaceData:
+                case deviation::SurfaceDeviationStatus::Error:
+                    deviationFailed = true;
+                    componentReport.geometryStatus = "INCONCLUSIVE";
+                    break;
+                }
+            }
+        }
+        report.components.push_back(std::move(componentReport));
+    }
+    if (deviationSamples > 0U) {
+        report.deepDeviation.available = true;
+        report.deepDeviation.maximumMm = maximumDeviation;
+        report.deepDeviation.meanMm =
+            deviationMeanWeighted / static_cast<double>(deviationSamples);
+        report.deepDeviation.rmsMm = std::sqrt(
+            deviationRmsSquaredWeighted / static_cast<double>(deviationSamples));
+        report.deepDeviation.percentile95Mm = maximumPercentile95;
+        report.deepDeviation.sampleCount = deviationSamples;
+        report.deepDeviation.triangleDistanceEvaluations = deviationEvaluations;
     }
     evidence.geometry = anyGeometryChanged
                             ? domain::GeometryStatus::ChangedProven
@@ -635,12 +821,67 @@ void runAssembly(const ComparisonRequest& request,
     evidence.position = positionStatus(moved, rotated);
     evidence.alignmentAmbiguous = alignmentAmbiguous;
     evidence.allRequiredStagesComplete =
-        matching.completeWithoutAmbiguity && allGeometrySame && !deepFailed;
+        matching.completeWithoutAmbiguity && allGeometrySame && !deepFailed &&
+        !deviationFailed && !surfaceCancelled && report.deepDeviation.available;
+}
+
+bool inputsAreByteIdentical(const ComparisonRequest& request) noexcept {
+    return request.identityA && request.identityB &&
+           !request.identityA->sha256Hex.empty() &&
+           request.identityA->sha256Hex == request.identityB->sha256Hex &&
+           request.identityA->sizeBytes == request.identityB->sizeBytes;
+}
+
+bool runByteIdenticalProof(const AssemblyIndex& indexA,
+                           const AssemblyIndex& indexB,
+                           domain::EvidenceSummary& evidence,
+                           reporting::Report& report) {
+    if (indexA.occurrences.size() != indexB.occurrences.size()) {
+        return false;
+    }
+    std::vector<reporting::ComponentRow> rows;
+    rows.reserve(indexA.occurrences.size());
+    for (const auto& occurrenceA : indexA.occurrences) {
+        const auto* occurrenceB = indexB.findOccurrence(occurrenceA.nodeId);
+        if (occurrenceB == nullptr ||
+            occurrenceA.worldTransform.matrix !=
+                occurrenceB->worldTransform.matrix ||
+            indexA.prototypes[occurrenceA.prototypeIndex].id !=
+                indexB.prototypes[occurrenceB->prototypeIndex].id) {
+            return false;
+        }
+        ComponentMatchRow row;
+        row.nodeIdA = occurrenceA.nodeId;
+        row.nodeIdB = occurrenceB->nodeId;
+        row.matchStatus = MatchStatus::MatchExact;
+        row.geometryEvidence = GeometryEvidence::SameProven;
+        row.resultStatus = ComponentResultStatus::Same;
+        row.confidence = 1.0;
+        auto component = reportComponent(row, indexA, indexB);
+        component.deviation.available = true;
+        rows.push_back(std::move(component));
+    }
+    report.components = std::move(rows);
+    // Equal SHA-256 and byte size under the same import configuration prove
+    // that A and B are the same source stream. Zero deviation is derived from
+    // that exact identity proof; no surface samples are claimed.
+    report.deepDeviation.available = true;
+    report.deepDeviation.maximumMm = 0.0;
+    report.deepDeviation.meanMm = 0.0;
+    report.deepDeviation.rmsMm = 0.0;
+    report.deepDeviation.percentile95Mm = 0.0;
+    report.deepDeviation.sampleCount = 0U;
+    report.deepDeviation.triangleDistanceEvaluations = 0U;
+    evidence.geometry = domain::GeometryStatus::SameProven;
+    evidence.position = domain::PositionStatus::Same;
+    evidence.allRequiredStagesComplete = true;
+    return true;
 }
 
 ComparisonResult compareImpl(const ComparisonRequest& request,
                              import::StepImportPort& importer,
-                             deep::DeepGeometryPort& deepGeometry) {
+                             deep::DeepGeometryPort& deepGeometry,
+                             deviation::SurfaceDeviationPort* surfaceDeviation) {
     ComparisonResult result;
     initializeReport(result.report, request);
 
@@ -649,6 +890,7 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
     }
 
     notifyProgress(request, ComparisonPhase::ImportA, 0U);
+    result.report.execution.terminalPhase = "IMPORT_A";
     const auto importAStarted = Clock::now();
     const auto importedA =
         importer.importStep(import::StepImportRequest{request.inputAUtf8});
@@ -657,6 +899,7 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
         return cancelledResult(request, std::move(result.report));
     }
     notifyProgress(request, ComparisonPhase::ImportB, 1U);
+    result.report.execution.terminalPhase = "IMPORT_B";
     const auto importBStarted = Clock::now();
     const auto importedB =
         importer.importStep(import::StepImportRequest{request.inputBUtf8});
@@ -682,10 +925,13 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
         evidence.stepImportFailed = true;
         result.verdict = domain::reduceVerdict(evidence);
         applyVerdict(result.report, result.verdict);
+        result.report.execution.status = "INPUT_ERROR";
+        result.report.execution.allRequiredEvidenceComplete = false;
         return result;
     }
 
     notifyProgress(request, ComparisonPhase::AssemblyIndex, 2U);
+    result.report.execution.terminalPhase = "ASSEMBLY_INDEX";
     const auto indexingStarted = Clock::now();
     const auto indexedA = assembly::buildAssemblyIndex(importedA.model);
     const auto indexedB = assembly::buildAssemblyIndex(importedB.model);
@@ -709,6 +955,8 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
             {domain::Decision::Error, {domain::ReasonCode::EvidenceIncomplete}};
         result.report.verdict.decision = "ERROR";
         result.report.verdict.reasons = {"ASSEMBLY_INDEX_FAILED"};
+        result.report.execution.status = "PROCESSING_ERROR";
+        result.report.execution.allRequiredEvidenceComplete = false;
         return result;
     }
 
@@ -719,7 +967,10 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
 
     domain::EvidenceSummary evidence;
     bool deepFailed = false;
+    bool deviationFailed = false;
+    bool surfaceCancelled = false;
     notifyProgress(request, ComparisonPhase::Matching, 3U);
+    result.report.execution.terminalPhase = "MATCHING_AND_DEEP_EVIDENCE";
     const auto matchingStarted = Clock::now();
     const bool singlePart = importedA.model.nodes.size() == 1U &&
                             importedB.model.nodes.size() == 1U &&
@@ -729,53 +980,188 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
                             indexedB.index->occurrences.size() == 1U &&
                             indexedA.index->prototypes.size() == 1U &&
                             indexedB.index->prototypes.size() == 1U;
-    if (singlePart) {
+    const bool exactIdentityProven =
+        inputsAreByteIdentical(request) &&
+        runByteIdenticalProof(*indexedA.index,
+                              *indexedB.index,
+                              evidence,
+                              result.report);
+    if (exactIdentityProven) {
+        result.report.execution.terminalPhase = "BYTE_IDENTICAL_PROOF";
+    } else if (singlePart) {
         runSinglePart(request,
                       *indexedA.index,
                       *indexedB.index,
                       deepGeometry,
+                      surfaceDeviation,
                       evidence,
                       result.report,
-                      deepFailed);
+                      deepFailed,
+                      deviationFailed,
+                      surfaceCancelled);
     } else {
         runAssembly(request,
                     *indexedA.index,
                     *indexedB.index,
                     deepGeometry,
+                    surfaceDeviation,
                     evidence,
                     result.report,
-                    deepFailed);
+                    deepFailed,
+                    deviationFailed,
+                    surfaceCancelled);
     }
     appendTiming(result.report, "comparison", matchingStarted);
-    if (request.cancellation.stop_requested()) {
+    if (request.cancellation.stop_requested() || surfaceCancelled) {
         return cancelledResult(request, std::move(result.report));
     }
 
-    evidence.deepCheckFailed = deepFailed;
+    evidence.deepCheckFailed = deepFailed || deviationFailed;
     result.verdict = domain::reduceVerdict(evidence);
-    result.status = deepFailed ? ComparisonRunStatus::ProcessingError
-                               : ComparisonRunStatus::Completed;
+    result.status = (deepFailed || deviationFailed)
+                        ? ComparisonRunStatus::ProcessingError
+                        : ComparisonRunStatus::Completed;
     if (deepFailed) {
         result.diagnostics.push_back({
             ComparisonDiagnosticCode::DeepComparisonFailed,
             "Deep geometry adapter failed; comparison cannot be completed"});
     }
+    if (deviationFailed) {
+        result.diagnostics.push_back({
+            ComparisonDiagnosticCode::SurfaceDeviationFailed,
+            "Surface deviation evidence was unavailable or failed; PASS is forbidden"});
+    }
     applyVerdict(result.report, result.verdict);
+    result.report.execution.status =
+        result.status == ComparisonRunStatus::Completed ? "COMPLETED"
+                                                        : "PROCESSING_ERROR";
+    result.report.execution.terminalPhase = "COMPLETE";
+    result.report.execution.allRequiredEvidenceComplete =
+        evidence.allRequiredStagesComplete &&
+        result.status == ComparisonRunStatus::Completed;
     notifyProgress(request, ComparisonPhase::Complete, 5U);
     return result;
+}
+
+void appendKeyDouble(std::string& output, const double value) {
+    std::array<char, 64> buffer{};
+    const auto converted = std::to_chars(
+        buffer.data(), buffer.data() + buffer.size(), value,
+        std::chars_format::general, std::numeric_limits<double>::max_digits10);
+    if (converted.ec != std::errc{}) {
+        throw std::runtime_error("Unable to serialize comparison cache key");
+    }
+    output.append(buffer.data(), converted.ptr);
+}
+
+std::optional<std::string> comparisonCacheKey(
+    const ComparisonRequest& request) {
+    if (!request.enableCache || !request.identityA || !request.identityB) {
+        return std::nullopt;
+    }
+    std::string configuration = request.importConfiguration;
+    configuration += request.deep ? "|deep=1" : "|deep=0";
+    configuration += "|position=";
+    appendKeyDouble(configuration, request.tolerances.positionMm);
+    configuration += "|surface=";
+    appendKeyDouble(configuration, request.tolerances.surfaceMm);
+    configuration += "|angle=";
+    appendKeyDouble(configuration, request.tolerances.angularDegrees);
+    configuration += "|boolean=";
+    appendKeyDouble(configuration, request.tolerances.booleanFuzzyMm);
+    configuration += "|relative=";
+    appendKeyDouble(configuration, request.tolerances.relativeProperty);
+
+    const auto keyA = cache::makeCacheKey(
+        {*request.identityA, configuration, "dev-v1-comparison-v2"});
+    const auto keyB = cache::makeCacheKey(
+        {*request.identityB, configuration, "dev-v1-comparison-v2"});
+    return "A{" + keyA + "}|B{" + keyB + "}";
+}
+
+std::size_t estimatedBytes(const ComparisonResult& result) noexcept {
+    std::size_t bytes = sizeof(result);
+    bytes += result.report.components.size() * sizeof(reporting::ComponentRow);
+    bytes += result.report.timings.size() * sizeof(reporting::Timing);
+    for (const auto& component : result.report.components) {
+        bytes += component.idA.size() + component.idB.size() +
+                 component.nameA.size() + component.nameB.size() +
+                 component.matchStatus.size() + component.geometryStatus.size() +
+                 component.positionStatus.size();
+    }
+    for (const auto& diagnostic : result.diagnostics) {
+        bytes += diagnostic.messageUtf8.size();
+    }
+    return bytes;
+}
+
+void applyCacheMetadata(reporting::Report& report,
+                        const std::optional<std::string>& key,
+                        const cache::CacheStatistics& statistics,
+                        const std::size_t usedBytes,
+                        const std::size_t budgetBytes,
+                        const bool hit) {
+    report.cache.enabled = key.has_value();
+    report.cache.hit = hit;
+    report.cache.key = key.value_or("");
+    report.cache.hits = statistics.hits;
+    report.cache.misses = statistics.misses;
+    report.cache.evictions = statistics.evictions;
+    report.cache.usedBytes = static_cast<std::uint64_t>(usedBytes);
+    report.cache.budgetBytes = static_cast<std::uint64_t>(budgetBytes);
 }
 
 }  // namespace
 
 ComparisonCoordinator::ComparisonCoordinator(
     import::StepImportPort& importer,
-    deep::DeepGeometryPort& deepGeometry) noexcept
-    : importer_(importer), deepGeometry_(deepGeometry) {}
+    deep::DeepGeometryPort& deepGeometry,
+    deviation::SurfaceDeviationPort* surfaceDeviation,
+    const std::size_t cacheBudgetBytes) noexcept
+    : importer_(importer),
+      deepGeometry_(deepGeometry),
+      surfaceDeviation_(surfaceDeviation),
+      cache_(cacheBudgetBytes) {}
 
 ComparisonResult ComparisonCoordinator::compare(
     const ComparisonRequest& request) noexcept {
     try {
-        return compareImpl(request, importer_, deepGeometry_);
+        if (request.cancellation.stop_requested()) {
+            return cancelledResult(request);
+        }
+        const auto key = comparisonCacheKey(request);
+        if (key) {
+            const auto lookupStarted = Clock::now();
+            if (auto cached = cache_.get(*key)) {
+                if (request.cancellation.stop_requested()) {
+                    return cancelledResult(request);
+                }
+                cached->report.inputA.pathUtf8 = utf8Bytes(request.inputAUtf8);
+                cached->report.inputB.pathUtf8 = utf8Bytes(request.inputBUtf8);
+                appendTiming(cached->report, "cache_lookup", lookupStarted);
+                applyCacheMetadata(cached->report,
+                                   key,
+                                   cache_.statistics(),
+                                   cache_.usedBytes(),
+                                   cache_.budgetBytes(),
+                                   true);
+                return *cached;
+            }
+        }
+
+        auto result =
+            compareImpl(request, importer_, deepGeometry_, surfaceDeviation_);
+        if (key && result.status == ComparisonRunStatus::Completed &&
+            !request.cancellation.stop_requested()) {
+            static_cast<void>(cache_.put(*key, result, estimatedBytes(result)));
+        }
+        applyCacheMetadata(result.report,
+                           key,
+                           cache_.statistics(),
+                           cache_.usedBytes(),
+                           cache_.budgetBytes(),
+                           false);
+        return result;
     } catch (const std::exception& failure) {
         ComparisonResult result;
         initializeReport(result.report, request);
@@ -784,6 +1170,8 @@ ComparisonResult ComparisonCoordinator::compare(
             {domain::Decision::Error, {domain::ReasonCode::EvidenceIncomplete}};
         result.report.verdict.decision = "ERROR";
         result.report.verdict.reasons = {"INTERNAL_FAILURE"};
+        result.report.execution.status = "PROCESSING_ERROR";
+        result.report.execution.terminalPhase = "INTERNAL_FAILURE";
         result.diagnostics.push_back(
             {ComparisonDiagnosticCode::InternalFailure, failure.what()});
         return result;
@@ -795,6 +1183,8 @@ ComparisonResult ComparisonCoordinator::compare(
             {domain::Decision::Error, {domain::ReasonCode::EvidenceIncomplete}};
         result.report.verdict.decision = "ERROR";
         result.report.verdict.reasons = {"INTERNAL_FAILURE"};
+        result.report.execution.status = "PROCESSING_ERROR";
+        result.report.execution.terminalPhase = "INTERNAL_FAILURE";
         result.diagnostics.push_back({
             ComparisonDiagnosticCode::InternalFailure,
             "Unknown application coordinator failure"});

@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QString>
 
+#include <algorithm>
 #include <utility>
 
 namespace stepcompare::gui {
@@ -45,6 +46,14 @@ void PreviewStatusWidget::setStatus(
                  QString::fromUtf8(status.messageUtf8)));
     progress_->setValue(status.percent);
     cancel_->setEnabled(status.cancellable && !status.cancelRequested);
+}
+
+void PreviewStatusWidget::setOperationStatus(QString message,
+                                             const int percent,
+                                             const bool cancellable) {
+    phaseLabel_->setText(std::move(message));
+    progress_->setValue(std::clamp(percent, 0, 100));
+    cancel_->setEnabled(cancellable);
 }
 
 }  // namespace stepcompare::gui

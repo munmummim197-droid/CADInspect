@@ -1,4 +1,6 @@
 add_executable(stepcompare_gui WIN32
+    comparison_runner.cpp
+    comparison_runner.hpp
     main.cpp
     component_tree_panel.cpp
     component_tree_panel.hpp
@@ -20,6 +22,10 @@ set_target_properties(stepcompare_gui PROPERTIES OUTPUT_NAME StepCompare)
 target_link_libraries(stepcompare_gui
     PRIVATE
         StepCompare::viewer
+        StepCompare::application
+        StepCompare::cache
+        StepCompare::deep_occt
+        StepCompare::surface_deviation_occt
         StepCompare::step_import_occt
         TKernel
         TKMath

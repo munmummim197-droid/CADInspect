@@ -5,6 +5,7 @@
 #include <stepcompare/application/comparison_coordinator.hpp>
 #include <stepcompare/cache/file_identity.hpp>
 #include <stepcompare/deep/occt_deep_geometry_engine.hpp>
+#include <stepcompare/deviation/occt_surface_deviation_engine.hpp>
 #include <stepcompare/import/occt_step_importer.hpp>
 #include <stepcompare/reporting/writers.hpp>
 #endif
@@ -112,8 +113,9 @@ int run(std::span<const std::string_view> arguments) {
 #ifdef STEPCOMPARE_CLI_HAS_COMPOSITION
     stepcompare::import::OcctStepImporter importer;
     stepcompare::deep::OcctDeepGeometryEngine deepGeometry;
+    stepcompare::deviation::OcctSurfaceDeviationEngine surfaceDeviation;
     stepcompare::application::ComparisonCoordinator coordinator(
-        importer, deepGeometry);
+        importer, deepGeometry, &surfaceDeviation);
 
     stepcompare::application::ComparisonRequest request;
     request.inputAUtf8 = asUtf8(parsed.options->inputAUtf8);
@@ -123,6 +125,10 @@ int run(std::span<const std::string_view> arguments) {
     request.tolerances.angularDegrees =
         parsed.options->angularToleranceDegrees;
     request.deep = parsed.options->deep;
+    request.identityA = stepcompare::cache::computeFileIdentity(
+        pathFromUtf8(parsed.options->inputAUtf8));
+    request.identityB = stepcompare::cache::computeFileIdentity(
+        pathFromUtf8(parsed.options->inputBUtf8));
     auto result = coordinator.compare(request);
 
     enrichIdentity(parsed.options->inputAUtf8, result.report.inputA);

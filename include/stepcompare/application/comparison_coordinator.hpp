@@ -1,6 +1,9 @@
 #pragma once
 
 #include "stepcompare/deep/deep_geometry_port.hpp"
+#include "stepcompare/cache/cache_key.hpp"
+#include "stepcompare/cache/memory_budget_cache.hpp"
+#include "stepcompare/deviation/surface_deviation_port.hpp"
 #include "stepcompare/domain/result.hpp"
 #include "stepcompare/domain/types.hpp"
 #include "stepcompare/import/step_import_port.hpp"
@@ -8,6 +11,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <vector>
@@ -27,6 +31,7 @@ enum class ComparisonDiagnosticCode {
     AssemblyIndexAFailed,
     AssemblyIndexBFailed,
     DeepComparisonFailed,
+    SurfaceDeviationFailed,
     Cancelled,
     InternalFailure,
 };
@@ -60,6 +65,10 @@ struct ComparisonRequest final {
     bool deep{false};
     std::stop_token cancellation{};
     ComparisonProgressCallback progress{};
+    std::optional<cache::FileIdentity> identityA{};
+    std::optional<cache::FileIdentity> identityB{};
+    std::string importConfiguration{"occt-xcaf-mm-v1"};
+    bool enableCache{true};
 };
 
 struct ComparisonResult final {
@@ -72,7 +81,9 @@ struct ComparisonResult final {
 class ComparisonCoordinator final {
 public:
     ComparisonCoordinator(import::StepImportPort& importer,
-                          deep::DeepGeometryPort& deepGeometry) noexcept;
+                          deep::DeepGeometryPort& deepGeometry,
+                          deviation::SurfaceDeviationPort* surfaceDeviation = nullptr,
+                          std::size_t cacheBudgetBytes = 256U * 1024U * 1024U) noexcept;
 
     [[nodiscard]] ComparisonResult compare(
         const ComparisonRequest& request) noexcept;
@@ -80,6 +91,8 @@ public:
 private:
     import::StepImportPort& importer_;
     deep::DeepGeometryPort& deepGeometry_;
+    deviation::SurfaceDeviationPort* surfaceDeviation_{};
+    cache::MemoryBudgetCache<ComparisonResult> cache_;
 };
 
 }  // namespace stepcompare::application

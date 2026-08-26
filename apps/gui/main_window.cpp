@@ -1,24 +1,62 @@
 #include "main_window.hpp"
 
 #include "component_tree_panel.hpp"
+#include "comparison_runner.hpp"
 #include "preview_status_widget.hpp"
 #include "step_preview_loader.hpp"
 #include "step_preview_scene_adapter.hpp"
 #include "viewer_actions.hpp"
 
 #include <stepcompare/viewer/occt_viewer_widget.hpp>
+#include <stepcompare/reporting/writers.hpp>
 
 #include <QFileDialog>
 #include <QLabel>
+#include <QStringList>
 #include <QStatusBar>
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <filesystem>
+#include <fstream>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace stepcompare::gui {
+namespace {
+
+stepcompare::viewer::ComponentChangeKind changeKind(
+    const stepcompare::reporting::ComponentRow& component) {
+    using stepcompare::viewer::ComponentChangeKind;
+    if (component.idA.empty()) {
+        return ComponentChangeKind::Added;
+    }
+    if (component.idB.empty()) {
+        return ComponentChangeKind::Missing;
+    }
+    if (component.geometryStatus == "DIFFERENT_PROVEN") {
+        return ComponentChangeKind::GeometryChanged;
+    }
+    if (component.positionStatus == "MOVED" ||
+        component.positionStatus == "MOVED_AND_ROTATED") {
+        return ComponentChangeKind::Moved;
+    }
+    if (component.positionStatus == "ROTATED") {
+        return ComponentChangeKind::Rotated;
+    }
+    return ComponentChangeKind::Unchanged;
+}
+
+std::string previewStableId(const stepcompare::viewer::ModelSide side,
+                            const std::string& nodeId) {
+    return side == stepcompare::viewer::ModelSide::A
+               ? "preview/A/" + nodeId
+               : "preview/B/" + nodeId;
+}
+
+}  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(tr("StepCompare DEV V1"));
@@ -35,9 +73,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     coordinateBanner_->setStyleSheet(
         QStringLiteral("QLabel { background: #18324a; color: white; font-weight: 700; }"));
     layout->addWidget(coordinateBanner_);
+    comparisonSummary_ = new QLabel(tr("No canonical comparison result"), central);
+    comparisonSummary_->setAlignment(Qt::AlignCenter);
+    comparisonSummary_->setMinimumHeight(28);
+    comparisonSummary_->setStyleSheet(QStringLiteral(
+        "QLabel { background: #eef3f7; color: #182532; font-weight: 600; }"));
+    layout->addWidget(comparisonSummary_);
     previewStatus_ = new PreviewStatusWidget(
         [this] {
-            if (previewLoader_) {
+            if (comparisonRunner_ && comparisonRunner_->busy()) {
+                static_cast<void>(comparisonRunner_->cancel());
+            } else if (previewLoader_) {
                 static_cast<void>(previewLoader_->cancel());
             }
         },
@@ -60,6 +106,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         *this,
         [this] { openStep(stepcompare::viewer::ModelSide::A); },
         [this] { openStep(stepcompare::viewer::ModelSide::B); },
+        [this] { startComparison(); },
+        [this] { saveCanonicalReport(true); },
+        [this] { saveCanonicalReport(false); },
+        [this](const bool enabled) {
+            viewer_->setDeviationColoringEnabled(enabled);
+            statusBar()->showMessage(
+                enabled && !viewer_->deviationColoringEnabled()
+                    ? tr("Heatmap unavailable: no validated deviation evidence")
+                    : enabled ? tr("Heatmap enabled") : tr("Heatmap disabled"));
+        },
         [this](const auto layer) {
             viewerState_.setLayer(layer);
             applyViewerState();
@@ -78,6 +134,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             statusBar()->showMessage(QString::fromUtf8(status.messageUtf8));
         },
         [this](PreviewJobResult result) { acceptPreviewResult(std::move(result)); },
+        this);
+    comparisonRunner_ = std::make_unique<ComparisonRunner>(
+        [this](const int percent, std::string message) {
+            previewStatus_->setOperationStatus(
+                QString::fromStdString(std::move(message)), percent, percent < 100);
+        },
+        [this](stepcompare::application::ComparisonResult result) {
+            acceptComparisonResult(std::move(result));
+        },
         this);
     selectionPresenter_ =
         std::make_unique<stepcompare::viewer::ViewerTreeSelectionPresenter>(
@@ -103,6 +168,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 MainWindow::~MainWindow() = default;
 
 void MainWindow::openStep(const stepcompare::viewer::ModelSide side) {
+    if ((comparisonRunner_ && comparisonRunner_->busy()) ||
+        (previewLoader_ && previewLoader_->busy())) {
+        statusBar()->showMessage(
+            tr("Finish or cancel the active OCCT operation before opening another file"));
+        return;
+    }
     const QString fileName = QFileDialog::getOpenFileName(
         this,
         side == stepcompare::viewer::ModelSide::A ? tr("Open STEP File A")
@@ -112,6 +183,9 @@ void MainWindow::openStep(const stepcompare::viewer::ModelSide side) {
     if (fileName.isEmpty()) {
         return;
     }
+    comparisonResult_.reset();
+    comparisonSummary_->setText(tr("Canonical result invalidated by new input"));
+    viewer_->clearDeviationColors();
     const QByteArray utf8 = fileName.toUtf8();
     std::u8string sourcePath(
         reinterpret_cast<const char8_t*>(utf8.constData()),
@@ -122,15 +196,21 @@ void MainWindow::openStep(const stepcompare::viewer::ModelSide side) {
 }
 
 void MainWindow::acceptPreviewResult(PreviewJobResult result) {
+    const auto sourcePath = result.importResult.model.sourcePathUtf8;
     auto rows = previewSceneAdapter_->display(result.importResult.model,
                                               result.side,
                                               *viewer_);
     if (result.side == stepcompare::viewer::ModelSide::A) {
+        inputAUtf8_ = sourcePath;
         previewRowsA_ = std::move(rows);
     } else {
+        inputBUtf8_ = sourcePath;
         previewRowsB_ = std::move(rows);
     }
     refreshPreviewRows();
+    if (!inputAUtf8_.empty() && !inputBUtf8_.empty()) {
+        startComparison();
+    }
 }
 
 void MainWindow::refreshPreviewRows() {
@@ -153,6 +233,134 @@ void MainWindow::showComponentResults(
         }
     }
     viewer_->setDifferenceStates(changedStableIds);
+}
+
+void MainWindow::startComparison() {
+    if (inputAUtf8_.empty() || inputBUtf8_.empty()) {
+        statusBar()->showMessage(tr("Load both STEP A and STEP B before comparison"));
+        return;
+    }
+    if (previewLoader_ && previewLoader_->busy()) {
+        statusBar()->showMessage(
+            tr("STEP preview import is still running; comparison was not started"));
+        return;
+    }
+    stepcompare::application::ComparisonRequest request;
+    request.inputAUtf8 = inputAUtf8_;
+    request.inputBUtf8 = inputBUtf8_;
+    request.deep = true;
+    if (!comparisonRunner_->start(std::move(request))) {
+        statusBar()->showMessage(tr("A canonical comparison is already running"));
+    }
+}
+
+void MainWindow::acceptComparisonResult(
+    stepcompare::application::ComparisonResult result) {
+    comparisonResult_ = std::move(result);
+    const auto& report = comparisonResult_->report;
+    QStringList reasons;
+    for (const auto& reason : report.verdict.reasons) {
+        reasons.push_back(QString::fromStdString(reason));
+    }
+    const auto metric = [&report](const double value) {
+        return report.deepDeviation.available ? QString::number(value, 'g', 6)
+                                              : QStringLiteral("N/A");
+    };
+    comparisonSummary_->setText(
+        tr("%1 — %2 | deviation max/mean/RMS: %3 / %4 / %5 mm | cache: %6")
+            .arg(QString::fromStdString(report.verdict.decision))
+            .arg(reasons.join(QStringLiteral(", ")))
+            .arg(metric(report.deepDeviation.maximumMm))
+            .arg(metric(report.deepDeviation.meanMm))
+            .arg(metric(report.deepDeviation.rmsMm))
+            .arg(report.cache.hit ? tr("HIT") : tr("MISS")));
+    previewStatus_->setOperationStatus(
+        tr("Canonical comparison %1").arg(
+            QString::fromStdString(report.execution.status)),
+        100,
+        false);
+    applyCanonicalRowsAndHeatmap();
+    statusBar()->showMessage(tr("Canonical comparison result published"));
+}
+
+void MainWindow::applyCanonicalRowsAndHeatmap() {
+    if (!comparisonResult_) {
+        return;
+    }
+    std::vector<stepcompare::viewer::ResultRowSnapshot> rows;
+    rows.reserve(previewRowsA_.size() + previewRowsB_.size());
+    rows.insert(rows.end(), previewRowsA_.begin(), previewRowsA_.end());
+    rows.insert(rows.end(), previewRowsB_.begin(), previewRowsB_.end());
+    std::unordered_map<std::string, std::size_t> rowIndex;
+    rowIndex.reserve(rows.size());
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+        rowIndex.emplace(rows[index].stableId.value(), index);
+    }
+
+    std::vector<stepcompare::viewer::DeviationColorAssignment> deviations;
+    for (const auto& component : comparisonResult_->report.components) {
+        const auto change = changeKind(component);
+        for (const auto& [side, nodeId] : {
+                 std::pair{stepcompare::viewer::ModelSide::A, component.idA},
+                 std::pair{stepcompare::viewer::ModelSide::B, component.idB}}) {
+            if (nodeId.empty()) {
+                continue;
+            }
+            const auto stableId = previewStableId(side, nodeId);
+            const auto found = rowIndex.find(stableId);
+            if (found != rowIndex.end()) {
+                rows[found->second].change = change;
+                if (component.deviation.available) {
+                    deviations.push_back({
+                        stepcompare::viewer::StableSelectionId{stableId},
+                        component.deviation.maximumMm});
+                }
+            }
+        }
+    }
+    showComponentResults(std::move(rows));
+
+    if (deviations.empty()) {
+        viewer_->clearDeviationColors();
+        return;
+    }
+    const auto scale = stepcompare::viewer::makeDeviationColorScale(
+        comparisonResult_->report.deepDeviation.maximumMm,
+        comparisonResult_->report.tolerances.surfaceMm);
+    if (!scale || !viewer_->setDeviationColors(deviations, *scale)) {
+        viewer_->clearDeviationColors();
+        statusBar()->showMessage(
+            tr("Heatmap rejected invalid or incomplete deviation evidence"));
+    }
+}
+
+void MainWindow::saveCanonicalReport(const bool json) {
+    if (!comparisonResult_) {
+        statusBar()->showMessage(tr("No canonical comparison result to save"));
+        return;
+    }
+    const auto path = QFileDialog::getSaveFileName(
+        this,
+        json ? tr("Save canonical JSON report") : tr("Save canonical CSV report"),
+        json ? QStringLiteral("stepcompare-report.json")
+             : QStringLiteral("stepcompare-report.csv"),
+        json ? tr("JSON files (*.json)") : tr("CSV files (*.csv)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    try {
+        std::ofstream output(std::filesystem::path(path.toStdWString()),
+                             std::ios::binary | std::ios::trunc);
+        if (json) {
+            stepcompare::reporting::writeJson(comparisonResult_->report, output);
+        } else {
+            stepcompare::reporting::writeCsv(comparisonResult_->report, output);
+        }
+        statusBar()->showMessage(output ? tr("Canonical report saved")
+                                        : tr("Canonical report write failed"));
+    } catch (...) {
+        statusBar()->showMessage(tr("Canonical report write failed"));
+    }
 }
 
 void MainWindow::applyViewerState() {

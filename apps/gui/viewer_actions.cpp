@@ -10,6 +10,10 @@ namespace stepcompare::gui {
 ViewerActions::ViewerActions(QMainWindow& window,
                              CommandHandler openAHandler,
                              CommandHandler openBHandler,
+                             CommandHandler compareHandler,
+                             CommandHandler saveJsonHandler,
+                             CommandHandler saveCsvHandler,
+                             std::function<void(bool)> heatmapHandler,
                              LayerHandler layerHandler,
                              CoordinatesHandler coordinatesHandler,
                              OrientationHandler orientationHandler,
@@ -27,6 +31,26 @@ ViewerActions::ViewerActions(QMainWindow& window,
             &QAction::triggered,
             this,
             [handler = std::move(openBHandler)] { handler(); });
+    connect(toolbar_->addAction(QObject::tr("Compare")),
+            &QAction::triggered,
+            this,
+            [handler = std::move(compareHandler)] { handler(); });
+    connect(toolbar_->addAction(QObject::tr("Save JSON")),
+            &QAction::triggered,
+            this,
+            [handler = std::move(saveJsonHandler)] { handler(); });
+    connect(toolbar_->addAction(QObject::tr("Save CSV")),
+            &QAction::triggered,
+            this,
+            [handler = std::move(saveCsvHandler)] { handler(); });
+    auto* heatmapAction = toolbar_->addAction(QObject::tr("HEATMAP"));
+    heatmapAction->setCheckable(true);
+    connect(heatmapAction,
+            &QAction::toggled,
+            this,
+            [handler = std::move(heatmapHandler)](const bool enabled) {
+                handler(enabled);
+            });
     toolbar_->addSeparator();
 
     auto* layerGroup = new QActionGroup(this);

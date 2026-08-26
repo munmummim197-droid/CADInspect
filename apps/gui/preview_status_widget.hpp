@@ -9,6 +9,7 @@
 class QLabel;
 class QProgressBar;
 class QPushButton;
+class QString;
 
 namespace stepcompare::gui {
 
@@ -20,6 +21,7 @@ public:
                                  QWidget* parent = nullptr);
 
     void setStatus(const stepcompare::viewer::PreviewLoadStatus& status);
+    void setOperationStatus(QString message, int percent, bool cancellable);
 
 private:
     QLabel* phaseLabel_{};

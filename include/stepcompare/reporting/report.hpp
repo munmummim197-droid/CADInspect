@@ -67,6 +67,26 @@ struct DeviationStatistics final {
     double meanMm{};
     double rmsMm{};
     double percentile95Mm{};
+    std::uint64_t sampleCount{};
+    std::uint64_t triangleDistanceEvaluations{};
+};
+
+struct ExecutionMetadata final {
+    std::string status{"NOT_STARTED"};
+    std::string terminalPhase{};
+    bool cancellationRequested{};
+    bool allRequiredEvidenceComplete{};
+};
+
+struct CacheMetadata final {
+    bool enabled{};
+    bool hit{};
+    std::string key{};
+    std::uint64_t hits{};
+    std::uint64_t misses{};
+    std::uint64_t evictions{};
+    std::uint64_t usedBytes{};
+    std::uint64_t budgetBytes{};
 };
 
 struct Timing final {
@@ -104,6 +124,8 @@ struct Report final {
     InputIdentity inputA{};
     InputIdentity inputB{};
     Tolerances tolerances{};
+    ExecutionMetadata execution{};
+    CacheMetadata cache{};
     GeometryStatistics statisticsA{};
     GeometryStatistics statisticsB{};
     PlacementResult placement{};

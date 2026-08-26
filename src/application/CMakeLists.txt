@@ -23,5 +23,6 @@ target_include_directories(stepcompare_application
 target_link_libraries(stepcompare_application
     PUBLIC
         StepCompare::assembly
+        StepCompare::cache
         StepCompare::domain
         stepcompare_project_options)
