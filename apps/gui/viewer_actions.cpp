@@ -8,6 +8,8 @@
 namespace stepcompare::gui {
 
 ViewerActions::ViewerActions(QMainWindow& window,
+                             CommandHandler openAHandler,
+                             CommandHandler openBHandler,
                              LayerHandler layerHandler,
                              CoordinatesHandler coordinatesHandler,
                              OrientationHandler orientationHandler,
@@ -16,6 +18,16 @@ ViewerActions::ViewerActions(QMainWindow& window,
     : QObject(&window) {
     toolbar_ = window.addToolBar(QObject::tr("3D Viewer"));
     toolbar_->setObjectName(QStringLiteral("viewerToolbar"));
+
+    connect(toolbar_->addAction(QObject::tr("Open A")),
+            &QAction::triggered,
+            this,
+            [handler = std::move(openAHandler)] { handler(); });
+    connect(toolbar_->addAction(QObject::tr("Open B")),
+            &QAction::triggered,
+            this,
+            [handler = std::move(openBHandler)] { handler(); });
+    toolbar_->addSeparator();
 
     auto* layerGroup = new QActionGroup(this);
     layerGroup->setExclusive(true);

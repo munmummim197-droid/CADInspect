@@ -195,6 +195,18 @@ void OcctViewerWidget::removeShape(const StableSelectionId& stableId) {
     impl_->context->UpdateCurrentViewer();
 }
 
+void OcctViewerWidget::clearShapes(const ModelSide side) {
+    for (auto iterator = impl_->entries.begin(); iterator != impl_->entries.end();) {
+        if (iterator->second.side == side) {
+            impl_->context->Remove(iterator->second.presentation, false);
+            iterator = impl_->entries.erase(iterator);
+        } else {
+            ++iterator;
+        }
+    }
+    impl_->context->UpdateCurrentViewer();
+}
+
 void OcctViewerWidget::clearShapes() {
     impl_->context->RemoveAll(false);
     impl_->entries.clear();

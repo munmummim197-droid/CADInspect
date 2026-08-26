@@ -28,6 +28,7 @@ public:
                       StableSelectionId stableId,
                       bool differs = false);
     void removeShape(const StableSelectionId& stableId);
+    void clearShapes(ModelSide side);
     void clearShapes();
     void setDifferenceState(const StableSelectionId& stableId, bool differs);
     void setDifferenceStates(std::span<const StableSelectionId> changedStableIds);

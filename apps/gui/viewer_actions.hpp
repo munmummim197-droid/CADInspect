@@ -24,6 +24,8 @@ public:
     using CommandHandler = std::function<void()>;
 
     ViewerActions(QMainWindow& window,
+                  CommandHandler openAHandler,
+                  CommandHandler openBHandler,
                   LayerHandler layerHandler,
                   CoordinatesHandler coordinatesHandler,
                   OrientationHandler orientationHandler,

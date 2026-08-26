@@ -31,3 +31,28 @@ target_link_libraries(stepcompare_viewer_selection_presenter_tests
 
 add_test(NAME stepcompare.viewer.selection_presenter
     COMMAND stepcompare_viewer_selection_presenter_tests)
+
+add_executable(stepcompare_viewer_preview_load_state_tests
+    preview_load_state_tests.cpp)
+
+target_link_libraries(stepcompare_viewer_preview_load_state_tests
+    PRIVATE
+        StepCompare::viewer)
+
+add_test(NAME stepcompare.viewer.preview_load_state
+    COMMAND stepcompare_viewer_preview_load_state_tests)
+
+add_executable(stepcompare_viewer_step_preview_model_tests
+    step_preview_model_tests.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui/step_preview_model.cpp")
+
+target_include_directories(stepcompare_viewer_step_preview_model_tests
+    PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui")
+
+target_link_libraries(stepcompare_viewer_step_preview_model_tests
+    PRIVATE
+        StepCompare::viewer)
+
+add_test(NAME stepcompare.viewer.step_preview_model
+    COMMAND stepcompare_viewer_step_preview_model_tests)

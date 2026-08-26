@@ -1,10 +1,14 @@
 #include "main_window.hpp"
 
 #include "component_tree_panel.hpp"
+#include "preview_status_widget.hpp"
+#include "step_preview_loader.hpp"
+#include "step_preview_scene_adapter.hpp"
 #include "viewer_actions.hpp"
 
 #include <stepcompare/viewer/occt_viewer_widget.hpp>
 
+#include <QFileDialog>
 #include <QLabel>
 #include <QStatusBar>
 #include <QSplitter>
@@ -32,6 +36,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QStringLiteral("QLabel { background: #18324a; color: white; font-weight: 700; }"));
     viewer_ = new stepcompare::viewer::OcctViewerWidget(central);
     layout->addWidget(coordinateBanner_);
+    previewStatus_ = new PreviewStatusWidget(
+        [this] {
+            if (previewLoader_) {
+                static_cast<void>(previewLoader_->cancel());
+            }
+        },
+        central);
+    layout->addWidget(previewStatus_);
     componentTree_ = new ComponentTreePanel(central);
     auto* splitter = new QSplitter(Qt::Horizontal, central);
     splitter->addWidget(componentTree_);
@@ -44,6 +56,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     actions_ = std::make_unique<ViewerActions>(
         *this,
+        [this] { openStep(stepcompare::viewer::ModelSide::A); },
+        [this] { openStep(stepcompare::viewer::ModelSide::B); },
         [this](const auto layer) {
             viewerState_.setLayer(layer);
             applyViewerState();
@@ -55,6 +69,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         [this](const auto orientation) { viewer_->setCameraOrientation(orientation); },
         [this] { viewer_->fitAll(); },
         [this] { viewer_->resetView(); });
+    previewSceneAdapter_ = std::make_unique<StepPreviewSceneAdapter>();
+    previewLoader_ = std::make_unique<StepPreviewLoader>(
+        [this](const auto& status) {
+            previewStatus_->setStatus(status);
+            statusBar()->showMessage(QString::fromUtf8(status.messageUtf8));
+        },
+        [this](PreviewJobResult result) { acceptPreviewResult(std::move(result)); },
+        this);
     selectionPresenter_ =
         std::make_unique<stepcompare::viewer::ViewerTreeSelectionPresenter>(
             [this](const auto& stableId) { componentTree_->selectStableId(stableId); },
@@ -77,6 +99,45 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() = default;
+
+void MainWindow::openStep(const stepcompare::viewer::ModelSide side) {
+    const QString fileName = QFileDialog::getOpenFileName(
+        this,
+        side == stepcompare::viewer::ModelSide::A ? tr("Open STEP File A")
+                                                  : tr("Open STEP File B"),
+        {},
+        tr("STEP files (*.step *.stp);;All files (*)"));
+    if (fileName.isEmpty()) {
+        return;
+    }
+    const QByteArray utf8 = fileName.toUtf8();
+    std::u8string sourcePath(
+        reinterpret_cast<const char8_t*>(utf8.constData()),
+        reinterpret_cast<const char8_t*>(utf8.constData() + utf8.size()));
+    if (!previewLoader_->start(side, std::move(sourcePath))) {
+        statusBar()->showMessage(tr("Another STEP import is still running"));
+    }
+}
+
+void MainWindow::acceptPreviewResult(PreviewJobResult result) {
+    auto rows = previewSceneAdapter_->display(result.importResult.model,
+                                              result.side,
+                                              *viewer_);
+    if (result.side == stepcompare::viewer::ModelSide::A) {
+        previewRowsA_ = std::move(rows);
+    } else {
+        previewRowsB_ = std::move(rows);
+    }
+    refreshPreviewRows();
+}
+
+void MainWindow::refreshPreviewRows() {
+    std::vector<stepcompare::viewer::ResultRowSnapshot> combined;
+    combined.reserve(previewRowsA_.size() + previewRowsB_.size());
+    combined.insert(combined.end(), previewRowsA_.begin(), previewRowsA_.end());
+    combined.insert(combined.end(), previewRowsB_.begin(), previewRowsB_.end());
+    showComponentResults(std::move(combined));
+}
 
 void MainWindow::showComponentResults(
     std::vector<stepcompare::viewer::ResultRowSnapshot> rows) {
