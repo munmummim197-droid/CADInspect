@@ -56,8 +56,45 @@ if (-not (Test-Path -LiteralPath $windeployqt -PathType Leaf)) {
     --dir $staging `
     (Join-Path $staging 'StepCompare.exe')
 if ($LASTEXITCODE -ne 0) {
-    throw "windeployqt failed with exit code ${LASTEXITCODE}."
+    Write-Warning "windeployqt failed with exit code ${LASTEXITCODE}; using the pinned minimal plugin deployment below."
 }
+
+# The vcpkg applocal integration has already copied all linked Qt/OCCT DLLs.
+# Copy the minimal runtime plugins explicitly as a deterministic fallback for
+# restricted hosts where windeployqt cannot spawn qtpaths.
+$qtPluginRoot = Join-Path $projectRoot 'vcpkg_installed\x64-windows\Qt6\plugins'
+$pluginFiles = @(
+    'platforms\qwindows.dll',
+    'imageformats\qgif.dll',
+    'imageformats\qico.dll',
+    'styles\qmodernwindowsstyle.dll'
+)
+foreach ($relativePlugin in $pluginFiles) {
+    $sourcePlugin = Join-Path $qtPluginRoot $relativePlugin
+    $targetPlugin = Join-Path $staging $relativePlugin
+    if (-not (Test-Path -LiteralPath $sourcePlugin -PathType Leaf)) {
+        throw "Pinned Qt plugin is missing: ${sourcePlugin}"
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $targetPlugin) -Force |
+        Out-Null
+    Copy-Item -LiteralPath $sourcePlugin -Destination $targetPlugin -Force
+}
+
+$vsWhere = Join-Path ${env:ProgramFiles(x86)} `
+    'Microsoft Visual Studio\Installer\vswhere.exe'
+$installationPath = & $vsWhere -latest -products Microsoft.VisualStudio.Product.BuildTools `
+    -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$redistRoot = Join-Path $installationPath 'VC\Redist\MSVC'
+$redistVersion = Get-ChildItem -LiteralPath $redistRoot -Directory |
+    Where-Object Name -Match '^\d' |
+    Sort-Object Name -Descending |
+    Select-Object -First 1
+if (-not $redistVersion) {
+    throw 'MSVC x64 redistributable directory was not found.'
+}
+$crtDirectory = Join-Path $redistVersion.FullName 'x64\Microsoft.VC145.CRT'
+Get-ChildItem -LiteralPath $crtDirectory -Filter '*.dll' -File |
+    Copy-Item -Destination $staging -Force
 
 $required = @(
     (Join-Path $staging 'StepCompare.exe'),
