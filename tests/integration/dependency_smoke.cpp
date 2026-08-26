@@ -104,8 +104,12 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    QDir(QDir::current().filePath(QString::fromUtf8(u8"Dự án")))
-        .removeRecursively();
+    if (qEnvironmentVariableIsEmpty("STEPCOMPARE_KEEP_FIXTURE")) {
+        QDir(QDir::current().filePath(QString::fromUtf8(u8"Dự án")))
+            .removeRecursively();
+    } else {
+        std::cout << "Fixture retained at " << encodedPath.constData() << '\n';
+    }
     std::cout << "Qt/OCCT STEP, XCAF, meshing, and Unicode smoke passed\n";
     return EXIT_SUCCESS;
 }
