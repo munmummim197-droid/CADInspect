@@ -1,5 +1,6 @@
 #include <stepcompare/scheduler/bounded_task_scheduler.hpp>
 #include <stepcompare/scheduler/progress_tracker.hpp>
+#include <stepcompare/scheduler/worker_budget.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -136,6 +137,25 @@ void progressSnapshotIsConsistent() {
            "progress cancellation must be observable by workers");
 }
 
+void memoryPressureReducesWorkers() {
+    using stepcompare::scheduler::WorkerBudgetInput;
+    using stepcompare::scheduler::chooseWorkerCount;
+    expect(chooseWorkerCount(WorkerBudgetInput{
+               .logicalProcessors = 32,
+               .availableBytes = 16ULL * 1024 * 1024 * 1024,
+               .reserveBytes = 4ULL * 1024 * 1024 * 1024,
+               .estimatedBytesPerWorker = 1024ULL * 1024 * 1024,
+               .configuredMaximum = 8}) == 8,
+           "healthy memory budget must allow configured parallelism");
+    expect(chooseWorkerCount(WorkerBudgetInput{
+               .logicalProcessors = 32,
+               .availableBytes = 5ULL * 1024 * 1024 * 1024,
+               .reserveBytes = 4ULL * 1024 * 1024 * 1024,
+               .estimatedBytesPerWorker = 2ULL * 1024 * 1024 * 1024,
+               .configuredMaximum = 8}) == 1,
+           "memory pressure must reduce worker count to one");
+}
+
 }  // namespace
 
 int main() {
@@ -144,6 +164,7 @@ int main() {
     workerConcurrencyIsBounded();
     cancellationIsObservable();
     progressSnapshotIsConsistent();
+    memoryPressureReducesWorkers();
 
     if (failures != 0) {
         std::cerr << failures << " scheduler assertion(s) failed\n";
