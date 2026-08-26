@@ -15,13 +15,15 @@ The triplet is dynamic `x64-windows`, which supports a portable DLL distribution
 avoids making static Qt linkage the default licensing decision.
 
 MSVC v145 is installed, while current Qt/OCCT vendor matrices list Visual Studio 2022.
-Therefore the dependency configuration is pinned but not yet declared compatible:
+Both dependencies were built from source in Debug and Release, followed by a real
+API smoke covering Qt Core, OCCT STEP/XCAF import, meshing, volume/bounds, and a
+Unicode Windows path. Host compatibility for the selected DEV configuration is now:
 
 ```text
-DEPENDENCY_COMPATIBILITY_CONFIRMED=False
+DEPENDENCY_COMPATIBILITY_CONFIRMED=True
 ```
 
-The flag becomes true only after Qt/OCCT build plus STEP/XCAF import, meshing, and AIS
-viewer smoke tests on this host. If v145 fails, installing v143 side-by-side requires
+This is host evidence, not a claim that v145 is in each vendor's certified matrix.
+An AIS/OpenGL physical-preview test remains a separate Phase 2 gate. If a later
+vendor-supported configuration requires v143, installing it side-by-side requires
 Owner approval because it changes the machine toolchain.
-

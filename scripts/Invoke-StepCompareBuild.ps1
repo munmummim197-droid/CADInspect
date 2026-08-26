@@ -3,6 +3,9 @@ param(
     [ValidateSet('Configure', 'Build', 'Test', 'All')]
     [string] $Stage = 'All',
 
+    [ValidateSet('core-dev', 'full-dev')]
+    [string] $Preset = 'core-dev',
+
     [switch] $Fresh
 )
 
@@ -22,6 +25,24 @@ if (-not $installationPath) {
 $cmakeBin = Join-Path $installationPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
 $cmake = Join-Path $cmakeBin 'cmake.exe'
 $ctest = Join-Path $cmakeBin 'ctest.exe'
+$devCmd = Join-Path $installationPath 'Common7\Tools\VsDevCmd.bat'
+$projectRoot = Split-Path -Parent $PSScriptRoot
+
+$developerEnvironment = @{}
+$environmentLines = & $env:ComSpec /d /s /c `
+    "`"${devCmd}`" -arch=x64 -host_arch=x64 >nul && set"
+if ($LASTEXITCODE -ne 0) {
+    throw "VsDevCmd failed with exit code ${LASTEXITCODE}."
+}
+foreach ($line in $environmentLines) {
+    $separator = $line.IndexOf('=')
+    if ($separator -gt 0) {
+        $name = $line.Substring(0, $separator)
+        $value = $line.Substring($separator + 1)
+        $developerEnvironment[$name] = $value
+    }
+}
+$developerEnvironment['VCPKG_ROOT'] = Join-Path $projectRoot '.tools\vcpkg'
 
 function Invoke-CleanEnvironmentProcess {
     param(
@@ -32,15 +53,6 @@ function Invoke-CleanEnvironmentProcess {
         [string[]] $ArgumentList
     )
 
-    $environment = [Environment]::GetEnvironmentVariables()
-    $pathValues = @()
-    foreach ($key in @($environment.Keys)) {
-        if ([string]$key -ieq 'Path') {
-            $pathValues += [string]$environment[$key]
-        }
-    }
-    $normalizedPath = $pathValues -join ';'
-
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
     $startInfo.UseShellExecute = $false
@@ -48,12 +60,10 @@ function Invoke-CleanEnvironmentProcess {
         [void]$startInfo.ArgumentList.Add($argument)
     }
 
-    foreach ($key in @($startInfo.Environment.Keys)) {
-        if ([string]$key -ieq 'Path') {
-            [void]$startInfo.Environment.Remove([string]$key)
-        }
+    $startInfo.Environment.Clear()
+    foreach ($entry in $developerEnvironment.GetEnumerator()) {
+        $startInfo.Environment[[string]$entry.Key] = [string]$entry.Value
     }
-    $startInfo.Environment['Path'] = $normalizedPath
 
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
@@ -68,7 +78,7 @@ function Invoke-CleanEnvironmentProcess {
 }
 
 if ($Stage -in @('Configure', 'All')) {
-    $arguments = @('--preset', 'core-dev')
+    $arguments = @('--preset', $Preset)
     if ($Fresh) {
         $arguments += '--fresh'
     }
@@ -78,12 +88,12 @@ if ($Stage -in @('Configure', 'All')) {
 if ($Stage -in @('Build', 'All')) {
     Invoke-CleanEnvironmentProcess `
         -FilePath $cmake `
-        -ArgumentList @('--build', '--preset', 'core-dev')
+        -ArgumentList @('--build', '--preset', $Preset)
 }
 
 if ($Stage -in @('Test', 'All')) {
     Invoke-CleanEnvironmentProcess `
         -FilePath $ctest `
-        -ArgumentList @('--preset', 'core-dev')
+        -ArgumentList @('--preset', $Preset)
 }
 

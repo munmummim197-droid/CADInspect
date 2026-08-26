@@ -32,8 +32,24 @@ endif()
 
 add_subdirectory(src/domain)
 
+if(STEPCOMPARE_ENABLE_OCCT)
+    find_package(OpenCASCADE CONFIG REQUIRED)
+endif()
+
+if(STEPCOMPARE_ENABLE_QT)
+    find_package(Qt6 CONFIG REQUIRED COMPONENTS
+        Core
+        Concurrent
+        Gui
+        OpenGL
+        OpenGLWidgets
+        Widgets)
+endif()
+
 if(STEPCOMPARE_BUILD_TESTS)
     include(CTest)
     add_subdirectory(tests/domain)
+    if(STEPCOMPARE_ENABLE_OCCT AND STEPCOMPARE_ENABLE_QT)
+        add_subdirectory(tests/integration)
+    endif()
 endif()
-

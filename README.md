@@ -23,6 +23,12 @@ without modifying the machine:
 .\scripts\Invoke-StepCompareBuild.ps1 -Stage All
 ```
 
+After installing the pinned vcpkg manifest, run the real Qt/OCCT integration smoke:
+
+```powershell
+.\scripts\Invoke-StepCompareBuild.ps1 -Preset full-dev -Stage All
+```
+
 Default tolerances are 0.01 mm for position/surface and 0.01 degrees for angle.
 Absolute translation follows `Delta = File B - File A`. Alignment transforms are
 always named and represented as `B -> A`.

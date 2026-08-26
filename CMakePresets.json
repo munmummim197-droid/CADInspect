@@ -19,6 +19,23 @@
         "STEPCOMPARE_ENABLE_QT": "OFF",
         "STEPCOMPARE_ENABLE_OCCT": "OFF"
       }
+    },
+    {
+      "name": "full-dev",
+      "displayName": "Full dependency smoke (MSVC x64)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs-full-dev",
+      "cacheVariables": {
+        "CMAKE_GENERATOR_INSTANCE": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/.tools/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_MANIFEST_INSTALL": "OFF",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
+        "STEPCOMPARE_BUILD_TESTS": "ON",
+        "STEPCOMPARE_ENABLE_QT": "ON",
+        "STEPCOMPARE_ENABLE_OCCT": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -26,12 +43,28 @@
       "name": "core-dev",
       "configurePreset": "core-dev",
       "configuration": "Debug"
+    },
+    {
+      "name": "full-dev",
+      "configurePreset": "full-dev",
+      "configuration": "Debug"
     }
   ],
   "testPresets": [
     {
       "name": "core-dev",
       "configurePreset": "core-dev",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "full-dev",
+      "configurePreset": "full-dev",
       "configuration": "Debug",
       "output": {
         "outputOnFailure": true
