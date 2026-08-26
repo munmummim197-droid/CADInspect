@@ -60,8 +60,13 @@ StepPreviewSceneAdapter::display(
         // copy. The payload shape and imported source transform remain immutable.
         const TopoDS_Shape located = sourceShape->Moved(
             TopLoc_Location(toOcctTransform(occurrence.worldTransform)));
-        viewer.displayShape(located, side, StableSelectionId{occurrence.stableId.value()});
+        viewer.displayShape(located,
+                            side,
+                            StableSelectionId{occurrence.stableId.value()},
+                            false,
+                            false);
     }
+    viewer.refreshPresentations();
     viewer.fitAll();
     return std::move(plan.rows);
 }

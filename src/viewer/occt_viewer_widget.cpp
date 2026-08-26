@@ -182,7 +182,8 @@ OcctViewerWidget::~OcctViewerWidget() = default;
 void OcctViewerWidget::displayShape(const TopoDS_Shape& shape,
                                     const ModelSide side,
                                     StableSelectionId stableId,
-                                    const bool differs) {
+                                    const bool differs,
+                                    const bool refresh) {
     const auto key = stableId.value();
     removeShape(stableId);
     if (differs) {
@@ -201,6 +202,12 @@ void OcctViewerWidget::displayShape(const TopoDS_Shape& shape,
                                                ? std::nullopt
                                                : std::optional{deviation->second},
                                        .alignedLocation = std::nullopt});
+    if (refresh) {
+        impl_->refreshPresentations();
+    }
+}
+
+void OcctViewerWidget::refreshPresentations() {
     impl_->refreshPresentations();
 }
 

@@ -32,7 +32,11 @@ public:
     void displayShape(const TopoDS_Shape& shape,
                       ModelSide side,
                       StableSelectionId stableId,
-                      bool differs = false);
+                      bool differs = false,
+                      bool refresh = true);
+    // Completes a batch of displayShape(..., refresh=false) calls with one
+    // linear presentation refresh instead of an O(n^2) refresh per shape.
+    void refreshPresentations();
     void removeShape(const StableSelectionId& stableId);
     void clearShapes(ModelSide side);
     void clearShapes();

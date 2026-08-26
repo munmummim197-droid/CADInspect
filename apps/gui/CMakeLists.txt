@@ -24,6 +24,7 @@ target_link_libraries(stepcompare_gui
         StepCompare::viewer
         StepCompare::application
         StepCompare::cache
+        StepCompare::reporting
         StepCompare::deep_occt
         StepCompare::surface_deviation_occt
         StepCompare::step_import_occt
