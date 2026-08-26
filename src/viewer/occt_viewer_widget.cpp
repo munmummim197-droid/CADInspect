@@ -3,6 +3,7 @@
 #include <AIS_InteractiveContext.hxx>
 #include <AIS_Shape.hxx>
 #include <Aspect_DisplayConnection.hxx>
+#include <Aspect_NeutralWindow.hxx>
 #include <OpenGl_GraphicDriver.hxx>
 #include <Quantity_Color.hxx>
 #include <TopLoc_Location.hxx>
@@ -10,14 +11,15 @@
 #include <V3d_TypeOfOrientation.hxx>
 #include <V3d_View.hxx>
 #include <V3d_Viewer.hxx>
-#include <WNT_Window.hxx>
 
 #include <QMouseEvent>
 #include <QPaintEngine>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QString>
 #include <QWheelEvent>
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <unordered_map>
@@ -63,6 +65,7 @@ public:
     Handle(V3d_Viewer) viewer;
     Handle(V3d_View) view;
     Handle(AIS_InteractiveContext) context;
+    Handle(Aspect_NeutralWindow) window;
     std::unordered_map<std::string, Entry> entries;
     std::unordered_set<std::string> differenceStableIds;
     QPoint mousePressPosition;
@@ -71,7 +74,7 @@ public:
     ViewerStateModel state;
     std::function<void(std::string)> selectionChangedHandler;
 
-    void initialize(const WId nativeWindowId) {
+    void initialize(const WId nativeWindowId, const int width, const int height) {
         displayConnection = new Aspect_DisplayConnection();
         graphicDriver = new OpenGl_GraphicDriver(displayConnection);
         viewer = new V3d_Viewer(graphicDriver);
@@ -81,8 +84,9 @@ public:
         context->SetDisplayMode(AIS_Shaded, false);
         view = viewer->CreateView();
 
-        Handle(WNT_Window) window =
-            new WNT_Window(reinterpret_cast<Aspect_Handle>(nativeWindowId));
+        window = new Aspect_NeutralWindow();
+        window->SetNativeHandle(reinterpret_cast<Aspect_Drawable>(nativeWindowId));
+        window->SetSize(std::max(width, 1), std::max(height, 1));
         view->SetWindow(window);
         if (!window->IsMapped()) {
             window->Map();
@@ -160,7 +164,7 @@ OcctViewerWidget::OcctViewerWidget(QWidget* parent)
     setAttribute(Qt::WA_NoSystemBackground);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
-    impl_->initialize(winId());
+    impl_->initialize(winId(), width(), height());
 }
 
 OcctViewerWidget::~OcctViewerWidget() = default;
@@ -325,6 +329,16 @@ void OcctViewerWidget::paintEvent(QPaintEvent* event) {
 
 void OcctViewerWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
+    impl_->window->SetSize(std::max(event->size().width(), 1),
+                           std::max(event->size().height(), 1));
+    impl_->view->MustBeResized();
+}
+
+void OcctViewerWidget::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    // The first useful native client size is available only after the splitter
+    // has laid out and shown this HWND.
+    impl_->window->SetSize(std::max(width(), 1), std::max(height(), 1));
     impl_->view->MustBeResized();
 }
 

@@ -34,7 +34,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     coordinateBanner_->setMinimumHeight(32);
     coordinateBanner_->setStyleSheet(
         QStringLiteral("QLabel { background: #18324a; color: white; font-weight: 700; }"));
-    viewer_ = new stepcompare::viewer::OcctViewerWidget(central);
     layout->addWidget(coordinateBanner_);
     previewStatus_ = new PreviewStatusWidget(
         [this] {
@@ -44,8 +43,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         },
         central);
     layout->addWidget(previewStatus_);
-    componentTree_ = new ComponentTreePanel(central);
     auto* splitter = new QSplitter(Qt::Horizontal, central);
+    // OcctViewerWidget owns a native HWND. Construct it with its final native
+    // parent so OCCT does not retain geometry from the pre-splitter parent.
+    componentTree_ = new ComponentTreePanel(splitter);
+    viewer_ = new stepcompare::viewer::OcctViewerWidget(splitter);
     splitter->addWidget(componentTree_);
     splitter->addWidget(viewer_);
     splitter->setStretchFactor(0, 0);

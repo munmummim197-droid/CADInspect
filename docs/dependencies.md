@@ -24,6 +24,9 @@ DEPENDENCY_COMPATIBILITY_CONFIRMED=True
 ```
 
 This is host evidence, not a claim that v145 is in each vendor's certified matrix.
-An AIS/OpenGL physical-preview test remains a separate Phase 2 gate. If a later
-vendor-supported configuration requires v143, installing it side-by-side requires
-Owner approval because it changes the machine toolchain.
+The AIS/OpenGL physical-preview gate passed on 2026-08-26 after the viewer adapter
+was changed to an explicitly sized `Aspect_NeutralWindow`. Unicode STEP A/B files
+import, fit, and render across the complete Qt viewport; tree, overlay/difference,
+coordinate banners, and camera actions respond. See `dev-v1-status.vi.md`. If a
+later vendor-supported configuration requires v143, installing it side-by-side
+requires Owner approval because it changes the machine toolchain.
