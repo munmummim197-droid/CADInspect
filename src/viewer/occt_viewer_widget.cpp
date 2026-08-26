@@ -57,6 +57,7 @@ public:
         Handle(AIS_Shape) presentation;
         ModelSide side{ModelSide::A};
         bool differs{};
+        std::optional<DeviationColor> deviationColor;
         std::optional<TopLoc_Location> alignedLocation;
     };
 
@@ -68,6 +69,8 @@ public:
     Handle(Aspect_NeutralWindow) window;
     std::unordered_map<std::string, Entry> entries;
     std::unordered_set<std::string> differenceStableIds;
+    std::unordered_map<std::string, DeviationColor> deviationColors;
+    bool deviationColoringEnabled{};
     QPoint mousePressPosition;
     QPoint lastMousePosition;
     Qt::MouseButtons pressedButtons{};
@@ -118,7 +121,14 @@ public:
                 context->ResetLocation(entry.presentation);
             }
 
-            if (entry.differs) {
+            if (deviationColoringEnabled && entry.deviationColor) {
+                const auto& rgb = entry.deviationColor->rgb;
+                context->SetColor(
+                    entry.presentation,
+                    Quantity_Color(rgb.red, rgb.green, rgb.blue, Quantity_TOC_RGB),
+                    false);
+                context->UnsetTransparency(entry.presentation, false);
+            } else if (entry.differs) {
                 context->SetColor(entry.presentation,
                                   entry.side == ModelSide::A ? Quantity_NOC_ORANGE
                                                              : Quantity_NOC_ORANGERED,
@@ -180,11 +190,16 @@ void OcctViewerWidget::displayShape(const TopoDS_Shape& shape,
     }
 
     Handle(AIS_Shape) presentation = new AIS_Shape(shape);
+    const auto deviation = impl_->deviationColors.find(key);
     impl_->entries.emplace(key,
                            Impl::Entry{.presentation = presentation,
                                        .side = side,
                                        .differs = differs ||
                                                   impl_->differenceStableIds.contains(key),
+                                       .deviationColor =
+                                           deviation == impl_->deviationColors.end()
+                                               ? std::nullopt
+                                               : std::optional{deviation->second},
                                        .alignedLocation = std::nullopt});
     impl_->refreshPresentations();
 }
@@ -194,12 +209,17 @@ void OcctViewerWidget::removeShape(const StableSelectionId& stableId) {
     if (found == impl_->entries.end()) {
         return;
     }
+    // Geometry replacement invalidates any result-derived presentation data.
+    impl_->deviationColors.clear();
+    impl_->deviationColoringEnabled = false;
     impl_->context->Remove(found->second.presentation, false);
     impl_->entries.erase(found);
     impl_->context->UpdateCurrentViewer();
 }
 
 void OcctViewerWidget::clearShapes(const ModelSide side) {
+    impl_->deviationColors.clear();
+    impl_->deviationColoringEnabled = false;
     for (auto iterator = impl_->entries.begin(); iterator != impl_->entries.end();) {
         if (iterator->second.side == side) {
             impl_->context->Remove(iterator->second.presentation, false);
@@ -212,6 +232,8 @@ void OcctViewerWidget::clearShapes(const ModelSide side) {
 }
 
 void OcctViewerWidget::clearShapes() {
+    impl_->deviationColors.clear();
+    impl_->deviationColoringEnabled = false;
     impl_->context->RemoveAll(false);
     impl_->entries.clear();
     impl_->context->UpdateCurrentViewer();
@@ -253,6 +275,53 @@ void OcctViewerWidget::clearDifferenceStates() {
         entry.differs = false;
     }
     impl_->refreshPresentations();
+}
+
+bool OcctViewerWidget::setDeviationColors(
+    const std::span<const DeviationColorAssignment> assignments,
+    const DeviationColorScale& scale) {
+    if (assignments.empty()) {
+        return false;
+    }
+    std::unordered_map<std::string, DeviationColor> next;
+    next.reserve(assignments.size());
+    for (const auto& assignment : assignments) {
+        const auto mapped = mapDeviationToColor(assignment.maximumMm, scale);
+        if (!mapped || !impl_->entries.contains(assignment.stableId.value()) ||
+            !next.emplace(assignment.stableId.value(), *mapped).second) {
+            return false;
+        }
+    }
+
+    impl_->deviationColors = std::move(next);
+    impl_->deviationColoringEnabled = true;
+    for (auto& [stableId, entry] : impl_->entries) {
+        const auto found = impl_->deviationColors.find(stableId);
+        entry.deviationColor = found == impl_->deviationColors.end()
+                                   ? std::nullopt
+                                   : std::optional{found->second};
+    }
+    impl_->refreshPresentations();
+    return true;
+}
+
+void OcctViewerWidget::clearDeviationColors() {
+    impl_->deviationColors.clear();
+    impl_->deviationColoringEnabled = false;
+    for (auto& [stableId, entry] : impl_->entries) {
+        static_cast<void>(stableId);
+        entry.deviationColor.reset();
+    }
+    impl_->refreshPresentations();
+}
+
+void OcctViewerWidget::setDeviationColoringEnabled(const bool enabled) {
+    impl_->deviationColoringEnabled = enabled && !impl_->deviationColors.empty();
+    impl_->refreshPresentations();
+}
+
+bool OcctViewerWidget::deviationColoringEnabled() const noexcept {
+    return impl_->deviationColoringEnabled;
 }
 
 void OcctViewerWidget::setAlignedLocation(const StableSelectionId& stableId,

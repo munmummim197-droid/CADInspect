@@ -7,12 +7,18 @@
 #include <span>
 #include <string>
 
+#include <stepcompare/viewer/deviation_coloring.hpp>
 #include <stepcompare/viewer/viewer_state.hpp>
 
 class TopLoc_Location;
 class TopoDS_Shape;
 
 namespace stepcompare::viewer {
+
+struct DeviationColorAssignment final {
+    StableSelectionId stableId;
+    double maximumMm{};
+};
 
 // Qt/OCCT adapter boundary. TopoDS_Shape does not escape into core or application APIs.
 class OcctViewerWidget final : public QWidget {
@@ -33,6 +39,17 @@ public:
     void setDifferenceState(const StableSelectionId& stableId, bool differs);
     void setDifferenceStates(std::span<const StableSelectionId> changedStableIds);
     void clearDifferenceStates();
+
+    // Applies aggregate component deviation values to existing
+    // presentations. The batch is atomic: invalid/non-finite input leaves the
+    // previous heatmap untouched. This is a GUI-thread presentation API and
+    // performs no geometry or OCCT analysis.
+    [[nodiscard]] bool setDeviationColors(
+        std::span<const DeviationColorAssignment> assignments,
+        const DeviationColorScale& scale);
+    void clearDeviationColors();
+    void setDeviationColoringEnabled(bool enabled);
+    [[nodiscard]] bool deviationColoringEnabled() const noexcept;
 
     // BToA is presentation-only and is used only in CoordinateMode::Aligned.
     void setAlignedLocation(const StableSelectionId& stableId,
