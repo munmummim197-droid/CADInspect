@@ -21,3 +21,13 @@ target_link_libraries(stepcompare_viewer_state_tests
         StepCompare::viewer)
 
 add_test(NAME stepcompare.viewer.state COMMAND stepcompare_viewer_state_tests)
+
+add_executable(stepcompare_viewer_selection_presenter_tests
+    selection_presenter_tests.cpp)
+
+target_link_libraries(stepcompare_viewer_selection_presenter_tests
+    PRIVATE
+        StepCompare::viewer)
+
+add_test(NAME stepcompare.viewer.selection_presenter
+    COMMAND stepcompare_viewer_selection_presenter_tests)

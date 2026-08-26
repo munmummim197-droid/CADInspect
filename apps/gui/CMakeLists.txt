@@ -1,5 +1,7 @@
 add_executable(stepcompare_gui WIN32
     main.cpp
+    component_tree_panel.cpp
+    component_tree_panel.hpp
     main_window.cpp
     main_window.hpp
     viewer_actions.cpp

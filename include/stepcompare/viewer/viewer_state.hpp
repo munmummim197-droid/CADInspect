@@ -35,7 +35,7 @@ enum class CameraOrientation {
 
 class StableSelectionId final {
 public:
-    StableSelectionId() = default;
+    StableSelectionId() = delete;
     explicit StableSelectionId(std::string value);
 
     [[nodiscard]] const std::string& value() const noexcept;

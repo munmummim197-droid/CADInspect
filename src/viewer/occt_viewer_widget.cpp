@@ -21,6 +21,7 @@
 #include <cmath>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace stepcompare::viewer {
@@ -63,6 +64,7 @@ public:
     Handle(V3d_View) view;
     Handle(AIS_InteractiveContext) context;
     std::unordered_map<std::string, Entry> entries;
+    std::unordered_set<std::string> differenceStableIds;
     QPoint mousePressPosition;
     QPoint lastMousePosition;
     Qt::MouseButtons pressedButtons{};
@@ -112,8 +114,11 @@ public:
                 context->ResetLocation(entry.presentation);
             }
 
-            if (visibility.differencesOnly) {
-                context->SetColor(entry.presentation, Quantity_NOC_ORANGERED, false);
+            if (entry.differs) {
+                context->SetColor(entry.presentation,
+                                  entry.side == ModelSide::A ? Quantity_NOC_ORANGE
+                                                             : Quantity_NOC_ORANGERED,
+                                  false);
                 context->UnsetTransparency(entry.presentation, false);
             } else if (entry.side == ModelSide::A) {
                 context->SetColor(entry.presentation, Quantity_NOC_STEELBLUE, false);
@@ -166,12 +171,16 @@ void OcctViewerWidget::displayShape(const TopoDS_Shape& shape,
                                     const bool differs) {
     const auto key = stableId.value();
     removeShape(stableId);
+    if (differs) {
+        impl_->differenceStableIds.emplace(key);
+    }
 
     Handle(AIS_Shape) presentation = new AIS_Shape(shape);
     impl_->entries.emplace(key,
                            Impl::Entry{.presentation = presentation,
                                        .side = side,
-                                       .differs = differs,
+                                       .differs = differs ||
+                                                  impl_->differenceStableIds.contains(key),
                                        .alignedLocation = std::nullopt});
     impl_->refreshPresentations();
 }
@@ -190,6 +199,44 @@ void OcctViewerWidget::clearShapes() {
     impl_->context->RemoveAll(false);
     impl_->entries.clear();
     impl_->context->UpdateCurrentViewer();
+}
+
+void OcctViewerWidget::setDifferenceState(const StableSelectionId& stableId,
+                                          const bool differs) {
+    if (differs) {
+        impl_->differenceStableIds.emplace(stableId.value());
+    } else {
+        impl_->differenceStableIds.erase(stableId.value());
+    }
+    const auto found = impl_->entries.find(stableId.value());
+    if (found == impl_->entries.end()) {
+        return;
+    }
+    found->second.differs = differs;
+    impl_->refreshPresentations();
+}
+
+void OcctViewerWidget::setDifferenceStates(
+    const std::span<const StableSelectionId> changedStableIds) {
+    std::unordered_set<std::string> changed;
+    changed.reserve(changedStableIds.size());
+    for (const auto& stableId : changedStableIds) {
+        changed.emplace(stableId.value());
+    }
+    impl_->differenceStableIds = changed;
+    for (auto& [stableId, entry] : impl_->entries) {
+        entry.differs = changed.contains(stableId);
+    }
+    impl_->refreshPresentations();
+}
+
+void OcctViewerWidget::clearDifferenceStates() {
+    impl_->differenceStableIds.clear();
+    for (auto& [stableId, entry] : impl_->entries) {
+        static_cast<void>(stableId);
+        entry.differs = false;
+    }
+    impl_->refreshPresentations();
 }
 
 void OcctViewerWidget::setAlignedLocation(const StableSelectionId& stableId,

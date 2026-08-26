@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 
 #include <stepcompare/viewer/viewer_state.hpp>
@@ -28,6 +29,9 @@ public:
                       bool differs = false);
     void removeShape(const StableSelectionId& stableId);
     void clearShapes();
+    void setDifferenceState(const StableSelectionId& stableId, bool differs);
+    void setDifferenceStates(std::span<const StableSelectionId> changedStableIds);
+    void clearDifferenceStates();
 
     // BToA is presentation-only and is used only in CoordinateMode::Aligned.
     void setAlignedLocation(const StableSelectionId& stableId,

@@ -1,13 +1,18 @@
 #include "main_window.hpp"
 
+#include "component_tree_panel.hpp"
 #include "viewer_actions.hpp"
 
 #include <stepcompare/viewer/occt_viewer_widget.hpp>
 
 #include <QLabel>
 #include <QStatusBar>
+#include <QSplitter>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <utility>
+#include <vector>
 
 namespace stepcompare::gui {
 
@@ -27,7 +32,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         QStringLiteral("QLabel { background: #18324a; color: white; font-weight: 700; }"));
     viewer_ = new stepcompare::viewer::OcctViewerWidget(central);
     layout->addWidget(coordinateBanner_);
-    layout->addWidget(viewer_, 1);
+    componentTree_ = new ComponentTreePanel(central);
+    auto* splitter = new QSplitter(Qt::Horizontal, central);
+    splitter->addWidget(componentTree_);
+    splitter->addWidget(viewer_);
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
+    splitter->setSizes({320, 960});
+    layout->addWidget(splitter, 1);
     setCentralWidget(central);
 
     actions_ = std::make_unique<ViewerActions>(
@@ -43,7 +55,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         [this](const auto orientation) { viewer_->setCameraOrientation(orientation); },
         [this] { viewer_->fitAll(); },
         [this] { viewer_->resetView(); });
+    selectionPresenter_ =
+        std::make_unique<stepcompare::viewer::ViewerTreeSelectionPresenter>(
+            [this](const auto& stableId) { componentTree_->selectStableId(stableId); },
+            [this](const auto& request) {
+                if (request.highlightSelection) {
+                    viewer_->selectStableId(request.stableId, request.fitSelection);
+                }
+            });
+    componentTree_->setSelectionHandler([this](std::string stableId) {
+        selectionPresenter_->onRowSelection(stableId);
+    });
     viewer_->setSelectionChangedHandler([this](std::string stableId) {
+        selectionPresenter_->onViewerSelection(stableId);
         statusBar()->showMessage(
             tr("Selected: %1").arg(QString::fromStdString(stableId)));
     });
@@ -53,6 +77,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() = default;
+
+void MainWindow::showComponentResults(
+    std::vector<stepcompare::viewer::ResultRowSnapshot> rows) {
+    selectionPresenter_->publishRows(std::move(rows));
+    componentTree_->setRows(selectionPresenter_->rows());
+    std::vector<stepcompare::viewer::StableSelectionId> changedStableIds;
+    changedStableIds.reserve(selectionPresenter_->rows().size());
+    for (const auto& row : selectionPresenter_->rows()) {
+        if (stepcompare::viewer::isChanged(row.change)) {
+            changedStableIds.push_back(row.stableId);
+        }
+    }
+    viewer_->setDifferenceStates(changedStableIds);
+}
 
 void MainWindow::applyViewerState() {
     coordinateBanner_->setText(QString::fromLatin1(viewerState_.coordinateBanner().data(),

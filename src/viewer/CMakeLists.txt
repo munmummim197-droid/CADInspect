@@ -2,8 +2,10 @@ set(_stepcompare_root "${CMAKE_CURRENT_LIST_DIR}/../..")
 
 add_library(stepcompare_viewer STATIC
     viewer_state.cpp
+    selection_presenter.cpp
     occt_viewer_widget.cpp
     "${_stepcompare_root}/include/stepcompare/viewer/viewer_state.hpp"
+    "${_stepcompare_root}/include/stepcompare/viewer/selection_presenter.hpp"
     "${_stepcompare_root}/include/stepcompare/viewer/occt_viewer_widget.hpp")
 
 add_library(StepCompare::viewer ALIAS stepcompare_viewer)
