@@ -11,28 +11,22 @@ if(NOT OpenCASCADE_FOUND)
     find_package(OpenCASCADE CONFIG REQUIRED)
 endif()
 
-add_library(stepcompare_step_import_occt STATIC
-    occt_step_importer.cpp)
+add_library(stepcompare_deep_occt STATIC
+    occt_deep_geometry_engine.cpp)
 
-add_library(StepCompare::step_import_occt ALIAS stepcompare_step_import_occt)
+add_library(StepCompare::deep_occt ALIAS stepcompare_deep_occt)
 
-target_include_directories(stepcompare_step_import_occt
+target_include_directories(stepcompare_deep_occt
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/../../include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/..)
 
-target_link_libraries(stepcompare_step_import_occt
+target_link_libraries(stepcompare_deep_occt
     PUBLIC
         stepcompare_project_options
     PRIVATE
-        TKDESTEP
-        TKXCAF
-        TKLCAF
-        TKCAF
-        TKVCAF
-        TKPrim
         TKBO
         TKBool
         TKBRep

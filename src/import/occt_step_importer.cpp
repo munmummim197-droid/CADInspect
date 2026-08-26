@@ -1,5 +1,7 @@
 #include "stepcompare/import/occt_step_importer.hpp"
 
+#include "adapters/occt/occt_geometry_payload.hpp"
+
 #include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
 #include <Bnd_Box.hxx>
@@ -48,17 +50,6 @@ std::mutex& occtImportMutex() {
     static std::mutex mutex;
     return mutex;
 }
-
-class OcctGeometryPayload final : public GeometryPayload {
-public:
-    explicit OcctGeometryPayload(TopoDS_Shape shape)
-        : shape_(std::move(shape)) {}
-
-private:
-    // This class is intentionally private to this translation unit so OCCT
-    // types never become part of the core-facing import contract.
-    TopoDS_Shape shape_;
-};
 
 std::string bytesFromUtf8(const std::u8string& value) {
     return {reinterpret_cast<const char*>(value.data()), value.size()};
@@ -252,7 +243,8 @@ private:
         prototype.id = id;
         prototype.nameUtf8 = labelNameUtf8(definition);
         prototype.statistics = analyzeGeometry(shape);
-        prototype.geometry = std::make_shared<OcctGeometryPayload>(shape);
+        prototype.geometry =
+            std::make_shared<adapters::occt::OcctGeometryPayload>(shape);
         prototypeIndices_.emplace(id, model_.prototypes.size());
         model_.prototypes.push_back(std::move(prototype));
     }
