@@ -1,7 +1,10 @@
 #include <stepcompare/cache/cache_key.hpp>
+#include <stepcompare/cache/file_identity.hpp>
 #include <stepcompare/cache/memory_budget_cache.hpp>
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -65,11 +68,33 @@ void memoryBudgetContract() {
            "cache must expose hit/miss/eviction diagnostics");
 }
 
+void realUnicodeFileIdentityContract() {
+    namespace fs = std::filesystem;
+    const auto directory = fs::current_path() / fs::path(u8"Bộ nhớ đệm");
+    const auto path = directory / fs::path(u8"Chi tiết 01.step");
+    fs::create_directories(directory);
+    {
+        std::ofstream output(path, std::ios::binary);
+        output << "abc";
+    }
+
+    const auto identity = stepcompare::cache::computeFileIdentity(path);
+    expect(identity.has_value(), "Unicode file identity must be computed");
+    if (identity) {
+        expect(identity->sha256Hex ==
+                   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+               "file hash must be the real SHA-256 digest");
+        expect(identity->sizeBytes == 3, "file size must come from the filesystem");
+    }
+    fs::remove_all(directory);
+}
+
 }  // namespace
 
 int main() {
     cacheKeyContract();
     memoryBudgetContract();
+    realUnicodeFileIdentityContract();
     if (failures != 0) {
         return EXIT_FAILURE;
     }
