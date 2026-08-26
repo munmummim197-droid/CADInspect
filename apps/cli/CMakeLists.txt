@@ -24,3 +24,16 @@ set_target_properties(stepcompare_cli PROPERTIES
 target_link_libraries(stepcompare_cli
     PRIVATE
         StepCompare::cli_contract)
+
+if(STEPCOMPARE_ENABLE_OCCT)
+    target_compile_definitions(stepcompare_cli
+        PRIVATE
+            STEPCOMPARE_CLI_HAS_COMPOSITION=1)
+    target_link_libraries(stepcompare_cli
+        PRIVATE
+            StepCompare::application
+            StepCompare::cache
+            StepCompare::deep_occt
+            StepCompare::reporting
+            StepCompare::step_import_occt)
+endif()
