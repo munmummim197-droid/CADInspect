@@ -1,0 +1,3 @@
+add_executable(stepcompare_cache_tests cache_tests.cpp)
+target_link_libraries(stepcompare_cache_tests PRIVATE StepCompare::cache)
+add_test(NAME stepcompare.cache COMMAND stepcompare_cache_tests)
