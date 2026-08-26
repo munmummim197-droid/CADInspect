@@ -69,8 +69,9 @@ và hạn chế phép đo nằm trong `docs/scale-validation.vi.md` và artifact
   `PASS — SAME_GEOMETRY_SAME_POSITION | deviation max/mean/RMS: 0 / 0 / 0 mm`.
 - So sánh lặp xác nhận `cache: HIT`; heatmap bật thành công; Save JSON tạo report
   5.000 component với execution `COMPLETED`, evidence complete và cache hit.
-- A only, B only, Overlay, Difference, Absolute/Aligned, camera chuẩn, Fit All,
-  pan/zoom/rotate và đồng bộ tree/viewer đã được regression trên viewer thật.
+- A only, B only, Overlay, Difference, Absolute/Aligned, camera chuẩn và Fit All
+  đã được regression trên viewer thật. Pan/zoom/rotate và đồng bộ tree/viewer có
+  coverage trong các test viewer state/selection presenter.
 - Kiểm thử hủy dùng STEP vật lý 20.000 occurrence. GUI nhận Cancel ở progress 5%,
   chuyển sang `Cancelling after current OCCT checkpoint`, vẫn phản hồi, rồi kết
   thúc `File A — CANCELLED — Cancelled`. Kết quả mới không được publish; scene/cây
