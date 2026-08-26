@@ -1,0 +1,44 @@
+{
+  "version": 8,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "core-dev",
+      "displayName": "Core development (MSVC x64)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs-core-dev",
+      "cacheVariables": {
+        "CMAKE_GENERATOR_INSTANCE": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "STEPCOMPARE_BUILD_TESTS": "ON",
+        "STEPCOMPARE_ENABLE_QT": "OFF",
+        "STEPCOMPARE_ENABLE_OCCT": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "core-dev",
+      "configurePreset": "core-dev",
+      "configuration": "Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "core-dev",
+      "configurePreset": "core-dev",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "stepcompare",
+  "version-string": "0.1.0-dev",
+  "builtin-baseline": "f89a4a1da4e3176a8d1a14c1825b9b2f98e48843",
+  "dependencies": [
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "concurrent",
+        "gui",
+        "opengl",
+        "thread",
+        "widgets",
+        "windeployqt"
+      ]
+    },
+    {
+      "name": "opencascade",
+      "default-features": false,
+      "features": [
+        "freetype"
+      ]
+    }
+  ]
+}
+

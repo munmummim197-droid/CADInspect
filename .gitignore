@@ -1,0 +1,54 @@
+# Build trees and generated artifacts
+/build/
+/out/
+/dist/
+/vcpkg_installed/
+/.cache/
+/.tools/
+
+# CMake and IDE state
+CMakeUserPresets.json
+.vs/
+.vscode/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# Native build products
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
+# Test, benchmark, and runtime output
+Testing/
+test-results/
+benchmark-results/
+reports/
+*.log
+*.tmp
+
+# StepCompare caches and large CAD fixtures
+*.stepcache
+fixtures/private/
+fixtures/large/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*~
