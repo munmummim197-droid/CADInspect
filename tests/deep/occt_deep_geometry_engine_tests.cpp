@@ -6,6 +6,7 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <STEPControl_StepModelType.hxx>
 #include <STEPControl_Writer.hxx>
@@ -90,6 +91,21 @@ bool mapsPoint(const stepcompare::import::RigidTransformMm& transform,
            std::abs(z - expected.Z()) <= tolerance;
 }
 
+bool hasIdentityRotation(
+    const stepcompare::import::RigidTransformMm& transform,
+    double tolerance) {
+    const auto& matrix = transform.matrix;
+    for (std::size_t row = 0; row < 3U; ++row) {
+        for (std::size_t column = 0; column < 3U; ++column) {
+            const double expected = row == column ? 1.0 : 0.0;
+            if (std::abs(matrix[row * 4U + column] - expected) > tolerance) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool compareSupportedRigidCases(const std::filesystem::path& directory) {
     const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 20.0, 30.0).Shape();
     const auto pathA = directory / "box-a.step";
@@ -166,11 +182,17 @@ bool compareChangedGeometry(const std::filesystem::path& directory) {
                  "dimension change must produce non-zero Vdiff");
 }
 
-bool rejectAmbiguousAndOpenShell(const std::filesystem::path& directory) {
+bool proveCanonicalSymmetricTranslationAndRejectUnprovenDifference(
+    const std::filesystem::path& directory) {
     const auto cubeA = directory / "cube-a.step";
-    const auto cubeB = directory / "cube-b.step";
+    const auto cubeTranslated = directory / "cube-translated.step";
+    const auto cubeRotated = directory / "cube-rotated.step";
+    const auto equalVolumeSphere = directory / "equal-volume-sphere.step";
     const auto shell = directory / "open-shell.step";
     const TopoDS_Shape cube = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    constexpr double cubeVolume = 1000.0;
+    const double equalVolumeRadius =
+        std::cbrt(3.0 * cubeVolume / (4.0 * std::numbers::pi));
     const TopoDS_Shape face =
         BRepBuilderAPI_MakeFace(gp_Pln(gp_Pnt(0.0, 0.0, 0.0),
                                       gp_Dir(0.0, 0.0, 1.0)),
@@ -180,17 +202,56 @@ bool rejectAmbiguousAndOpenShell(const std::filesystem::path& directory) {
                                 10.0)
             .Shape();
     if (!writeStep(cubeA, cube) ||
-        !writeStep(cubeB, transformed(cube, 17.0, gp_Vec(3.0, 4.0, 5.0))) ||
+        !writeStep(cubeTranslated,
+                   transformed(cube, 0.0, gp_Vec(3.0, 4.0, 5.0))) ||
+        !writeStep(cubeRotated,
+                   transformed(cube, 17.0, gp_Vec(3.0, 4.0, 5.0))) ||
+        !writeStep(equalVolumeSphere,
+                   BRepPrimAPI_MakeSphere(equalVolumeRadius).Shape()) ||
         !writeStep(shell, face)) {
         return check(false, "cannot write fail-closed fixtures");
     }
 
     OcctDeepGeometryEngine engine;
-    const auto ambiguous = engine.compareAligned(
-        {importSinglePrototype(cubeA), importSinglePrototype(cubeB)});
-    bool passed = check(ambiguous.status ==
-                            DeepGeometryStatus::AlignmentNotProven,
-                        "symmetric cube alignment must fail closed");
+    const auto translated = engine.compareAligned(
+        {importSinglePrototype(cubeA),
+         importSinglePrototype(cubeTranslated)});
+    bool passed = check(translated.status == DeepGeometryStatus::SameGeometry,
+                        "translated symmetric cube must be Boolean-proven same");
+    passed &= check(translated.alignmentProven,
+                    "translated symmetric cube alignment must be proven");
+    passed &= check(hasIdentityRotation(translated.transformBToA, 1.0e-10),
+                    "symmetric translation must choose canonical zero rotation");
+    passed &= check(mapsPoint(translated.transformBToA,
+                              gp_Pnt(8.0, 9.0, 10.0),
+                              gp_Pnt(5.0, 5.0, 5.0),
+                              1.0e-6),
+                    "canonical symmetric transform must map the center");
+
+    const auto rotated = engine.compareAligned(
+        {importSinglePrototype(cubeA), importSinglePrototype(cubeRotated)});
+    passed &= check(rotated.status == DeepGeometryStatus::SameGeometry ||
+                        rotated.status == DeepGeometryStatus::AlignmentNotProven,
+                    "rotated cube must be proven same or fail closed as CHECK");
+    if (rotated.status == DeepGeometryStatus::SameGeometry) {
+        passed &= check(rotated.alignmentProven &&
+                            rotated.symmetricDifferenceVolumeMm3 <= 1.0e-4,
+                        "rotated cube PASS must carry Boolean overlap proof");
+    } else {
+        passed &= check(!rotated.alignmentProven,
+                        "unresolved rotated cube must not claim alignment");
+    }
+
+    const auto unprovenDifference = engine.compareAligned(
+        {importSinglePrototype(cubeA),
+         importSinglePrototype(equalVolumeSphere)});
+    passed &= check(unprovenDifference.status ==
+                        DeepGeometryStatus::AlignmentNotProven,
+                    "equal-volume symmetric difference must remain CHECK");
+    passed &= check(!unprovenDifference.alignmentProven,
+                    "symmetric difference must not claim a proven alignment");
+    passed &= check(unprovenDifference.symmetricDifferenceVolumeMm3 > 1.0,
+                    "unproven symmetric candidates must retain measured Vdiff");
 
     const auto openShellGeometry = importSinglePrototype(shell);
     const auto openShell = engine.compareAligned(
@@ -230,7 +291,7 @@ bool compareHoleAddedAndRemoved(const std::filesystem::path& directory) {
     return passed;
 }
 
-bool symmetricCylinderRotationIsNotFalsePass(
+bool symmetricCylinderRotationIsBooleanProven(
     const std::filesystem::path& directory) {
     const auto pathA = directory / "cylinder-a.step";
     const auto pathB = directory / "cylinder-b.step";
@@ -243,8 +304,38 @@ bool symmetricCylinderRotationIsNotFalsePass(
     OcctDeepGeometryEngine engine;
     const auto result = engine.compareAligned(
         {importSinglePrototype(pathA), importSinglePrototype(pathB)});
-    return check(result.status == DeepGeometryStatus::AlignmentNotProven,
-                 "symmetric cylinder rotation must remain CHECK, never false PASS");
+    bool passed = check(result.status == DeepGeometryStatus::SameGeometry,
+                        "axial cylinder rotation must be Boolean-proven same");
+    passed &= check(result.alignmentProven,
+                    "axial cylinder alignment must be proven");
+    passed &= check(hasIdentityRotation(result.transformBToA, 1.0e-10),
+                    "axial symmetry must choose canonical zero rotation");
+    passed &= check(mapsPoint(result.transformBToA,
+                              gp_Pnt(3.0, -4.0, 12.0),
+                              gp_Pnt(0.0, 0.0, 10.0),
+                              1.0e-6),
+                    "axial symmetry transform must map the center");
+    return passed;
+}
+
+bool symmetricVolumeDifferenceIsConclusive(
+    const std::filesystem::path& directory) {
+    const auto pathA = directory / "volume-cube-a.step";
+    const auto pathB = directory / "volume-cube-b.step";
+    if (!writeStep(pathA, BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()) ||
+        !writeStep(pathB, BRepPrimAPI_MakeBox(11.0, 11.0, 11.0).Shape())) {
+        return check(false, "cannot write symmetric volume fixtures");
+    }
+    OcctDeepGeometryEngine engine;
+    const auto result = engine.compareAligned(
+        {importSinglePrototype(pathA), importSinglePrototype(pathB)});
+    bool passed = check(result.status == DeepGeometryStatus::GeometryChanged,
+                        "symmetric volume mismatch must prove geometry changed");
+    passed &= check(!result.alignmentProven,
+                    "volume-only proof must not claim spatial alignment");
+    passed &= check(result.symmetricDifferenceVolumeMm3 > 300.0,
+                    "volume-only proof must expose its lower bound");
+    return passed;
 }
 
 }  // namespace
@@ -255,8 +346,10 @@ int main() {
     const bool passed = compareSupportedRigidCases(directory) &&
                         compareChangedGeometry(directory) &&
                         compareHoleAddedAndRemoved(directory) &&
-                        symmetricCylinderRotationIsNotFalsePass(directory) &&
-                        rejectAmbiguousAndOpenShell(directory);
+                        symmetricCylinderRotationIsBooleanProven(directory) &&
+                        symmetricVolumeDifferenceIsConclusive(directory) &&
+                        proveCanonicalSymmetricTranslationAndRejectUnprovenDifference(
+                            directory);
     std::filesystem::remove_all(directory);
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -46,6 +46,8 @@ struct Candidate final {
     double rotationScore{-std::numeric_limits<double>::infinity()};
 };
 
+constexpr double kCandidateTieTolerance = 1.0e-10;
+
 void diagnostic(DeepGeometryResult& result,
                 DeepDiagnosticCode code,
                 std::string message) {
@@ -158,6 +160,12 @@ gp_Trsf rigidTransform(const Matrix3& rotation,
     return transform;
 }
 
+gp_Trsf centerTranslation(const gp_Pnt& centerB, const gp_Pnt& centerA) {
+    gp_Trsf transform;
+    transform.SetTranslation(gp_Vec(centerB, centerA));
+    return transform;
+}
+
 double shapeVolume(const TopoDS_Shape& shape) {
     if (shape.IsNull()) {
         return 0.0;
@@ -189,6 +197,11 @@ double commonVolume(const TopoDS_Shape& shapeA,
 std::vector<gp_Trsf> alignmentCandidates(const MassFrame& frameA,
                                          const MassFrame& frameB) {
     std::vector<gp_Trsf> candidates;
+    // This hypothesis is independent of principal-axis choices.  It proves
+    // translated shapes and rotations that are true geometric symmetries
+    // without assigning an arbitrary orientation inside a degenerate inertia
+    // eigenspace.
+    candidates.push_back(centerTranslation(frameB.center, frameA.center));
     std::array<int, 3> permutation{0, 1, 2};
     do {
         for (int mask = 0; mask < 8; ++mask) {
@@ -207,6 +220,48 @@ std::vector<gp_Trsf> alignmentCandidates(const MassFrame& frameA,
         }
     } while (std::next_permutation(permutation.begin(), permutation.end()));
     return candidates;
+}
+
+bool transformLexicographicallyLess(const gp_Trsf& lhs,
+                                    const gp_Trsf& rhs) noexcept {
+    for (int row = 1; row <= 3; ++row) {
+        for (int column = 1; column <= 4; ++column) {
+            const double left = lhs.Value(row, column);
+            const double right = rhs.Value(row, column);
+            if (left < right - kCandidateTieTolerance) {
+                return true;
+            }
+            if (left > right + kCandidateTieTolerance) {
+                return false;
+            }
+        }
+    }
+    return false;
+}
+
+bool isBetterCandidate(const Candidate& candidate,
+                       const Candidate& current) noexcept {
+    if (candidate.differenceVolume <
+        current.differenceVolume - kCandidateTieTolerance) {
+        return true;
+    }
+    if (candidate.differenceVolume >
+        current.differenceVolume + kCandidateTieTolerance) {
+        return false;
+    }
+    // Prefer the least rotation when several transforms prove the same
+    // overlap.  The final matrix ordering makes the selected transform stable
+    // when symmetric alternatives have the same rotation angle.
+    if (candidate.rotationScore >
+        current.rotationScore + kCandidateTieTolerance) {
+        return true;
+    }
+    if (candidate.rotationScore <
+        current.rotationScore - kCandidateTieTolerance) {
+        return false;
+    }
+    return transformLexicographicallyLess(candidate.transform,
+                                          current.transform);
 }
 
 import::RigidTransformMm toContractTransform(const gp_Trsf& transform) {
@@ -267,15 +322,21 @@ DeepGeometryResult compareImpl(const DeepGeometryRequest& request) {
         return result;
     }
 
+    const double volumeScale =
+        std::max({frameA.volume, frameB.volume, 1.0});
+    const double acceptedDifference =
+        request.options.relativeVolumeTolerance * volumeScale;
+    const double volumeDifference = std::abs(frameA.volume - frameB.volume);
+    // Rigid alignment preserves volume.  Keep evaluating candidates so the
+    // reported Boolean metrics describe a real tested transform, but remember
+    // that this invariant alone can prove a geometry change.
+    const bool volumeDifferenceIsConclusive =
+        volumeDifference > acceptedDifference;
+
     constexpr double kRepeatedMomentRelativeTolerance = 1.0e-8;
-    if (hasRepeatedMoments(frameA, kRepeatedMomentRelativeTolerance) ||
-        hasRepeatedMoments(frameB, kRepeatedMomentRelativeTolerance)) {
-        result.status = DeepGeometryStatus::AlignmentNotProven;
-        diagnostic(result,
-                   DeepDiagnosticCode::AlignmentNotProven,
-                   "Principal inertia frame is ambiguous by symmetry");
-        return result;
-    }
+    const bool ambiguousBySymmetry =
+        hasRepeatedMoments(frameA, kRepeatedMomentRelativeTolerance) ||
+        hasRepeatedMoments(frameB, kRepeatedMomentRelativeTolerance);
 
     Candidate best;
     bool completedBoolean = false;
@@ -290,10 +351,10 @@ DeepGeometryResult compareImpl(const DeepGeometryRequest& request) {
             const double rotationScore = transform.Value(1, 1) +
                                          transform.Value(2, 2) +
                                          transform.Value(3, 3);
-            if (!completedBoolean || difference < best.differenceVolume ||
-                (std::abs(difference - best.differenceVolume) <= 1.0e-10 &&
-                 rotationScore > best.rotationScore)) {
-                best = {transform, common, difference, rotationScore};
+            const Candidate candidate{
+                transform, common, difference, rotationScore};
+            if (!completedBoolean || isBetterCandidate(candidate, best)) {
+                best = candidate;
             }
             completedBoolean = true;
         } catch (const Standard_Failure&) {
@@ -304,22 +365,53 @@ DeepGeometryResult compareImpl(const DeepGeometryRequest& request) {
     }
 
     if (!completedBoolean) {
+        if (volumeDifferenceIsConclusive) {
+            result.status = DeepGeometryStatus::GeometryChanged;
+        }
         diagnostic(result,
                    DeepDiagnosticCode::BooleanOperationFailed,
                    "OCCT Boolean Common failed for every alignment candidate");
         return result;
     }
 
-    result.transformBToA = toContractTransform(best.transform);
     result.commonVolumeMm3 = best.commonVolume;
     result.symmetricDifferenceVolumeMm3 = best.differenceVolume;
+    if (volumeDifferenceIsConclusive) {
+        result.status = DeepGeometryStatus::GeometryChanged;
+        if (ambiguousBySymmetry) {
+            diagnostic(result,
+                       DeepDiagnosticCode::AlignmentNotProven,
+                       "Volume mismatch proves geometry changed, but the "
+                       "symmetric alignment remains ambiguous");
+        } else {
+            result.transformBToA = toContractTransform(best.transform);
+            result.alignmentProven = true;
+        }
+        return result;
+    }
+
+    if (best.differenceVolume <= acceptedDifference) {
+        // Boolean overlap is the proof; a unique principal frame is not
+        // required.  This is safe for cubes, cylinders and spheres because no
+        // PASS is derived from inertia moments alone.
+        result.transformBToA = toContractTransform(best.transform);
+        result.alignmentProven = true;
+        result.status = DeepGeometryStatus::SameGeometry;
+        return result;
+    }
+
+    if (ambiguousBySymmetry) {
+        result.status = DeepGeometryStatus::AlignmentNotProven;
+        diagnostic(result,
+                   DeepDiagnosticCode::AlignmentNotProven,
+                   "Principal inertia frame is ambiguous and no tested rigid "
+                   "hypothesis proved equivalence");
+        return result;
+    }
+
+    result.transformBToA = toContractTransform(best.transform);
     result.alignmentProven = true;
-    const double volumeScale =
-        std::max({frameA.volume, frameB.volume, 1.0});
-    result.status = best.differenceVolume <=
-                            request.options.relativeVolumeTolerance * volumeScale
-                        ? DeepGeometryStatus::SameGeometry
-                        : DeepGeometryStatus::GeometryChanged;
+    result.status = DeepGeometryStatus::GeometryChanged;
     return result;
 }
 
