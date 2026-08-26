@@ -6,6 +6,9 @@ param(
     [ValidateSet('core-dev', 'full-dev')]
     [string] $Preset = 'core-dev',
 
+    [ValidateSet('Debug', 'Release')]
+    [string] $Configuration = 'Debug',
+
     [switch] $Fresh
 )
 
@@ -88,12 +91,11 @@ if ($Stage -in @('Configure', 'All')) {
 if ($Stage -in @('Build', 'All')) {
     Invoke-CleanEnvironmentProcess `
         -FilePath $cmake `
-        -ArgumentList @('--build', '--preset', $Preset)
+        -ArgumentList @('--build', '--preset', $Preset, '--config', $Configuration)
 }
 
 if ($Stage -in @('Test', 'All')) {
     Invoke-CleanEnvironmentProcess `
         -FilePath $ctest `
-        -ArgumentList @('--preset', $Preset)
+        -ArgumentList @('--preset', $Preset, '-C', $Configuration)
 }
-
