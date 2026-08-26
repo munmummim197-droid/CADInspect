@@ -1,5 +1,6 @@
 add_library(stepcompare_scheduler STATIC
-    bounded_task_scheduler.cpp)
+    bounded_task_scheduler.cpp
+    progress_tracker.cpp)
 
 add_library(StepCompare::scheduler ALIAS stepcompare_scheduler)
 
@@ -11,4 +12,3 @@ target_include_directories(stepcompare_scheduler
 target_link_libraries(stepcompare_scheduler
     PUBLIC
         stepcompare_project_options)
-

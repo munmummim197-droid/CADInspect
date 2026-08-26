@@ -1,4 +1,5 @@
 #include <stepcompare/scheduler/bounded_task_scheduler.hpp>
+#include <stepcompare/scheduler/progress_tracker.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -113,6 +114,28 @@ void cancellationIsObservable() {
     expect(observed.load(), "running task must observe cooperative cancellation");
 }
 
+void progressSnapshotIsConsistent() {
+    using stepcompare::scheduler::ProgressPhase;
+    using stepcompare::scheduler::ProgressTracker;
+    ProgressTracker progress;
+    progress.begin(ProgressPhase::Fingerprinting, 100);
+    progress.advance(40);
+    const auto active = progress.snapshot();
+    expect(active.phase == ProgressPhase::Fingerprinting,
+           "progress phase must be observable");
+    expect(active.processed == 40 && active.total == 100,
+           "progress counts must be consistent");
+    expect(active.elapsedMilliseconds >= 0,
+           "elapsed time must never be negative");
+
+    progress.advance(100);
+    expect(progress.snapshot().processed == 100,
+           "processed count must clamp to total");
+    progress.requestCancel();
+    expect(progress.stopRequested(),
+           "progress cancellation must be observable by workers");
+}
+
 }  // namespace
 
 int main() {
@@ -120,6 +143,7 @@ int main() {
     queueIsBounded();
     workerConcurrencyIsBounded();
     cancellationIsObservable();
+    progressSnapshotIsConsistent();
 
     if (failures != 0) {
         std::cerr << failures << " scheduler assertion(s) failed\n";
