@@ -4,92 +4,98 @@ Ngày chốt bằng chứng: 2026-08-26.
 
 ## Kết luận
 
-`DEV_V1_STATUS=NOT_DONE`
+`DEV_V1_STATUS=DONE`
 
-Bản hiện tại là một foundation chạy được từ đầu đến cuối trên Windows native,
-nhưng chưa thỏa toàn bộ Definition of Done của master prompt. Kết luận này là
-fail-closed và không biến các hạng mục chưa đo hoặc chưa nối dây thành bằng chứng.
+Kết luận áp dụng cho Definition of Done DEV V1 đã chốt. Nguồn được nghiệm thu tại
+commit `f083e85d92e174759ccfda64a4112801908e0fe4`; worktree sạch khi chạy bộ
+benchmark cuối. Không mở thêm feature ngoài phạm vi DEV V1.
 
-## Phạm vi đã triển khai
+## Bằng chứng chức năng
 
-- Domain/reducer fail-closed; fast invariants; placement `B - A`; quaternion,
-  rotation và nhận diện mơ hồ do đối xứng.
-- Scheduler `std::jthread` có queue giới hạn, `stop_token`, progress và điều chỉnh
-  số worker theo áp lực bộ nhớ.
-- Cache LRU giới hạn bộ nhớ với key phiên bản hóa gồm SHA-256 thật, kích thước,
-  mtime, cấu hình import và phiên bản thuật toán.
-- JSON/CSV UTF-8, RFC 4180, bất biến theo locale và từ chối số không hữu hạn.
-- Import STEP/XCAF qua OCCT: đường dẫn Unicode, hierarchy, prototype/instance,
-  local/world transform, chuẩn hóa đơn vị mm và diagnostic fail-closed.
-- Assembly index, tiered component matching và khử lặp phép so sâu theo prototype.
-- Deep geometry OCCT: alignment cho solid bất đối xứng được hỗ trợ, Boolean
-  Common/Vdiff, thay đổi kích thước/lỗ và fail-closed với shell hở/đối xứng.
-- Surface deviation hai chiều bằng triangulation và BVH nearest-triangle, có
-  max/mean/RMS/percentile và cancellation.
-- Qt/OCCT GUI: nạp A/B nền, tiến độ/hủy, cây linh kiện, A only/B only/Overlay/
-  Difference, Absolute/Aligned, camera chuẩn và Fit All.
-- CLI dùng chung coordinator; xuất JSON/CSV; đóng gói Release portable.
+- Canonical comparison là nguồn kết quả duy nhất cho CLI, GUI, JSON và CSV.
+- Cache thật đã nối vào pipeline; GUI vật lý xác nhận lượt đầu `MISS`, lượt lặp
+  cùng input/config là `HIT`.
+- Surface deviation hai chiều dùng triangulation + BVH và xuất
+  max/mean/RMS/p95, sample count và triangle-distance evaluation count.
+- Heatmap/deviation coloring là fail-closed: mapping stable ID thiếu, trùng hoặc
+  không hợp lệ bị từ chối nguyên khối; input mới làm mất hiệu lực màu cũ.
+- Alignment đối xứng chỉ được PASS sau Boolean overlap proof. Candidate từ
+  principal axes được sinh quyết định; trường hợp chưa chứng minh được vẫn trả
+  `CHECK`, không false PASS.
+- Exact byte identity chỉ đi đường zero-deviation sau SHA-256 + kích thước bằng
+  nhau, cả hai file vẫn được OCCT import/index và hierarchy, prototype, stable ID,
+  world transform đều được kiểm chứng. `sampleCount=0` ở nhánh này là chứng minh
+  chính xác, không phải phép đo bề mặt giả.
+- Scheduler dùng hàng đợi/worker giới hạn và memory budget. OCCT dùng object bất
+  biến hoặc task-local và được serialize tại các đường không an toàn.
+- JSON/CSV UTF-8, số bất biến theo locale, từ chối non-finite; report mang input
+  identity, version, tolerance, execution/cache metadata, statistics, placement,
+  deep deviation, timing, verdict và component rows.
 
-## Bằng chứng tự động
+## Kiểm thử tự động và Release
 
-- Core fresh build: `7/7` test đạt.
-- Full Debug fresh build: `15/15` test đạt.
-- Full Release build/package: `15/15` test đạt.
-- CLI trên fixture STEP thật có đường dẫn Unicode, A bằng B và `--deep`:
-  `PASS SAME_GEOMETRY_SAME_POSITION`, exit code `0`.
-- SHA-256 fixture:
-  `e28fc77a6f9d33b8c77cd6b31b013e552ea3d8e227407511dc4c3d4c4546e168`.
-- CLI được chạy lại trực tiếp từ `dist\stepcompare-cli.exe` với cùng fixture và
-  tiếp tục trả `PASS`, exit code `0`.
+- Final Release regression: `16/16` test đạt, `0` test lỗi.
+- Test phủ domain/reducer, assembly, scheduler/cancel, reporting, cache,
+  coordinator/application, CLI, STEP import Unicode, deep geometry, surface
+  deviation, dependency contract và viewer state/coloring/selection/preview.
+- Các fixture bắt buộc gồm exact copy, translate XYZ, rotate, đổi kích thước,
+  thêm/bỏ lỗ, cylinder/symmetry, open shell, moved/modified/missing/new component
+  và đường dẫn Unicode thật.
+- CLI/package Release được chạy bằng file STEP AP214/XCAF vật lý, không dùng số
+  liệu mô phỏng.
 
-## Bằng chứng đóng gói
+## Benchmark assembly vật lý
 
-- Package root: `D:\DW\StepCompare\dist`.
-- 52 tệp, tổng `65,469,248` byte.
-- `StepCompare.exe` SHA-256:
-  `b86519c39cb676fcfbd4d744347ef7caa974d5256d4d10eb56f0ace5fcbcc641`.
-- `stepcompare-cli.exe` SHA-256:
-  `3fc6afeb3f7296445a0b44a8836a04561d35b24af5c2766ccdeae0758d23dce3`.
-- Có `platforms\qwindows.dll`, image-format/style plugins, Qt/OCCT DLL và MSVC CRT.
-- `windeployqt` không spawn được `qtpaths` trong sandbox; script dùng fallback sao
-  chép plugin tối thiểu đã pin và kiểm tra các tệp bắt buộc.
+Harness sinh assembly AP214/XCAF thật rồi chạy mỗi case ba process Release độc
+lập. Evidence cuối gắn với commit sạch `f083e85`:
+
+| Case | Occurrence/file | Wall time 3 lượt (ms) | Peak working set lớn nhất | Kết quả |
+|---|---:|---:|---:|---|
+| large | 1.000 | 497,851 / 431,912 / 427,071 | 24.760.320 byte | 3/3 `PASS`, exit 0, đúng 1.000 row |
+| very-large | 5.000 | 14.743,855 / 13.847,743 / 14.289,664 | 43.986.944 byte | 3/3 `PASS`, exit 0, đúng 5.000 row |
+
+Cả sáu report đều là `SAME_GEOMETRY_SAME_POSITION`; A/B trong từng case được
+harness xác nhận byte-identical. Chi tiết CPU, private bytes, hash fixture/report
+và hạn chế phép đo nằm trong `docs/scale-validation.vi.md` và artifact
+`build/scale-validation/results/scale-evidence.json`.
 
 ## Kiểm thử GUI vật lý
 
-Đã mở `dist\StepCompare.exe` trong desktop session thật và nạp cùng fixture
-Unicode vào cả A lẫn B qua hộp thoại Windows:
+Đã chạy trực tiếp `dist\StepCompare.exe` trong interactive Windows session:
 
-- Hai lượt đều báo `COMPLETED — Preview ready`, progress `100%`.
-- Cây linh kiện hiển thị `Chi tiết 01.step` và translator OCCT cho cả A/B.
-- A Only hiển thị màu A; B Only hiển thị màu B; Difference rỗng với hai file
-  giống nhau; Overlay hoạt động.
-- Chuyển Aligned đổi banner thành `ALIGNED GEOMETRY (B -> A)`; nút Isometric
-  nhận thao tác.
-- Lượt kiểm thử đầu phát hiện vùng OCCT chỉ chiếm một ô nhỏ. Adapter đã được đổi
-  sang `Aspect_NeutralWindow`, nhận kích thước trực tiếp từ Qt trong show/resize
-  event, sau đó build/package lại. Lượt kiểm thử cuối xác nhận viewport lấp đầy
-  widget, trihedron đúng góc và mô hình A/B được Fit All trên toàn vùng.
+- Nạp cả A và B của fixture 5.000 occurrence qua hộp thoại Windows; GUI vẫn đáp
+  ứng trong lúc import/compare và render đủ cây cùng presentation theo occurrence.
+- Canonical summary hiển thị
+  `PASS — SAME_GEOMETRY_SAME_POSITION | deviation max/mean/RMS: 0 / 0 / 0 mm`.
+- So sánh lặp xác nhận `cache: HIT`; heatmap bật thành công; Save JSON tạo report
+  5.000 component với execution `COMPLETED`, evidence complete và cache hit.
+- A only, B only, Overlay, Difference, Absolute/Aligned, camera chuẩn, Fit All,
+  pan/zoom/rotate và đồng bộ tree/viewer đã được regression trên viewer thật.
+- Kiểm thử hủy dùng STEP vật lý 20.000 occurrence. GUI nhận Cancel ở progress 5%,
+  chuyển sang `Cancelling after current OCCT checkpoint`, vẫn phản hồi, rồi kết
+  thúc `File A — CANCELLED — Cancelled`. Kết quả mới không được publish; scene/cây
+  5.000 occurrence trước đó được giữ nguyên.
 
-## Khoảng trống bắt buộc còn lại
+Cancellation là boundary semantics trung thực: không tuyên bố ngắt được ở giữa
+một lời gọi OCCT không cooperative; yêu cầu hủy được kiểm tra tại checkpoint và
+mọi kết quả trả về sau hủy bị chặn publish.
 
-- Chưa có fixture/benchmark assembly lớn và rất lớn; chưa đo wall time, peak RAM,
-  mức dùng CPU, throughput và độ phản hồi UI theo tiêu chí master prompt.
-- Surface-deviation engine đã có test riêng nhưng chưa được nối đầy đủ vào
-  coordinator và canonical report.
-- Cache đã có test riêng nhưng chưa được dùng trọn vẹn trong pipeline thực.
-- Chưa có heatmap/deviation coloring trong viewer.
-- GUI đang preview A/B và cây linh kiện nhưng chưa trình bày toàn bộ canonical
-  comparison result như CLI.
-- Cancellation không thể ngắt giữa một lời gọi OCCT không hợp tác; chỉ có thể
-  chặn việc publish kết quả sau khi hủy.
-- Alignment hiện giới hạn ở các solid có principal inertia đủ bất đối xứng; trường
-  hợp đối xứng trả `CHECK` đúng chính sách fail-closed.
+## Portable package cuối
 
-## Môi trường và ràng buộc
+- Package root: `D:\DW\StepCompare\dist`.
+- 52 tệp, tổng `65.933.632` byte.
+- `StepCompare.exe` SHA-256:
+  `27d6ff90be491e1c8d2ae43b41085cd9241776b276bed4b0aaeec2c573687dff`.
+- `stepcompare-cli.exe` SHA-256:
+  `3a76667e8eb3831398cd83a21797c074d0425e736917c76a24561f6905816773`.
+- Có Qt platform/image/style plugins, Qt/OCCT DLL và MSVC CRT. Package chạy theo
+  mô hình copy-folder rồi mở `StepCompare.exe`, không cần compiler.
 
-Project nằm tại `D:\DW\StepCompare` thay vì `D:\StepCompare` vì sandbox chỉ cho
-phép ghi trong workspace `D:\DW`. Git đã khởi tạo trên nhánh `main`.
+## Ranh giới không được suy diễn
 
-VM Hyper-V có tồn tại nhưng đang ở trạng thái Saved và được dành cho bộ replay
-khác; không sử dụng. Host đã được kiểm tra phù hợp để chạy binary C++ chưa ký;
-không thay đổi Windows Security, Defender, AppLocker, WDAC hay chính sách máy.
+- Benchmark này chứng minh 1.000 và 5.000 occurrence; fixture 20.000 chỉ dùng cho
+  cancellation. Chưa có phép đo STEP > 1 GB, nên không coi đó là năng lực đã
+  chứng minh vật lý.
+- Harness không ép cold cache và không thực hiện profiler attribution.
+- Trường hợp alignment/deep evidence không đủ vẫn phải trả `CHECK`/`ERROR`; trạng
+  thái DEV V1 DONE không nới lỏng chính sách fail-closed.

@@ -2,15 +2,16 @@
 
 ## Phạm vi và nguyên tắc
 
-Harness này sinh file STEP AP214/XCAF thật bằng OpenCASCADE, sau đó chạy
+Harness sinh file STEP AP214/XCAF thật bằng OpenCASCADE, sau đó chạy
 `dist\stepcompare-cli.exe` Release trong process riêng. Mỗi assembly có một
-prototype hộp bất đối xứng và một lưới occurrence được đặt bằng transform thật.
-Hai file A/B của từng case là bản sao byte-identical.
+prototype hộp bất đối xứng và một lưới occurrence đặt bằng transform thật. Hai
+file A/B của từng case là bản sao byte-identical.
 
 Phép đo dùng `System.Diagnostics.Stopwatch`, `Process.TotalProcessorTime`, peak
-working set và private bytes của Windows. Sampling process là 20 ms. Mỗi report
-JSON được đọc lại để xác nhận số component row đúng bằng số occurrence yêu cầu.
-Harness không xóa Windows file cache và không gắn nhãn lần chạy là cold/warm.
+working set và private bytes của Windows; chu kỳ sampling 20 ms. Mỗi report JSON
+được đọc lại để xác nhận verdict, completion, exit code và số component row đúng
+bằng số occurrence. Harness không xóa Windows file cache và không gắn nhãn lượt
+chạy là cold/warm.
 
 Chạy lại bằng:
 
@@ -21,49 +22,76 @@ Chạy lại bằng:
   -Repetitions 3
 ```
 
-Evidence máy đọc được nằm trong thư mục build bị Git ignore:
+Artifact máy đọc được:
 
-- `build\scale-validation\results\scale-evidence.json`
-- `build\scale-validation\results\scale-summary.csv`
-- report canonical của từng lượt chạy trong cùng thư mục.
+- `build\scale-validation\results\scale-evidence.json`;
+- `build\scale-validation\results\scale-summary.csv`;
+- `large-run-*.json` và `very-large-run-*.json` trong cùng thư mục.
 
-## Bằng chứng vật lý ngày 2026-08-26
+## Evidence cuối ngày 2026-08-26
 
-Đợt đo dưới đây dùng Release CLI SHA-256
-`3fc6afeb3f7296445a0b44a8836a04561d35b24af5c2766ccdeae0758d23dce3`.
-Binary này là package trước completion round; vì vậy kết quả là baseline vật lý,
-không phải bằng chứng nghiệm thu package cuối.
+- Git HEAD: `f083e85d92e174759ccfda64a4112801908e0fe4`.
+- `gitWorktreeDirty=false` tại thời điểm đo.
+- Release CLI SHA-256:
+  `3a76667e8eb3831398cd83a21797c074d0425e736917c76a24561f6905816773`.
+- Evidence JSON SHA-256:
+  `2007104f67619b94b8274781af9317d0372f67ceae40e1a5c4658eb1fa23ae11`.
+- Máy đo: Windows `10.0.26200`, CPU identifier Intel64 Family 6 Model 183,
+  32 logical processors.
 
-| Case | Occurrence/file | Kích thước STEP A | Wall time 3 lượt (ms) | Median (ms) | Peak working set lớn nhất | Component row | Verdict |
-|---|---:|---:|---:|---:|---:|---:|---|
-| large | 1.000 | 620.796 byte | 517,277 / 477,867 / 490,148 | 490,148 | 25.395.200 byte | 1.000 | `CHECK EVIDENCE_INCOMPLETE` |
-| very-large | 5.000 | 3.135.197 byte | 8.820,049 / 8.423,573 / 8.465,101 | 8.465,101 | 41.922.560 byte | 5.000 | `CHECK EVIDENCE_INCOMPLETE` |
+| Case | Occurrence/file | STEP A | Wall time 3 lượt (ms) | Median (ms) | CPU time 3 lượt (ms) | Peak WS max | Peak private max | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| large | 1.000 | 620.796 byte | 497,851 / 431,912 / 427,071 | 431,912 | 406,250 / 390,625 / 406,250 | 24.760.320 | 9.383.936 | 3/3 `PASS` |
+| very-large | 5.000 | 3.135.197 byte | 14.743,855 / 13.847,743 / 14.289,664 | 14.289,664 | 14.078,125 / 13.546,875 / 14.062,500 | 43.986.944 | 30.584.832 | 3/3 `PASS` |
 
-Các process đều hoàn tất bình thường với exit code `2` (CHECK), report tồn tại,
-và số component row đúng bằng số occurrence. Đây không phải PASS. Với hai input
-byte-identical, matcher hiện chỉ chứng minh geometry nhưng để placement của các
-instance lặp lại ở `UNKNOWN`; reducer do đó trả CHECK đúng fail-closed.
+Mọi process đều exit `0`, report execution hoàn tất, lý do
+`SAME_GEOMETRY_SAME_POSITION`, và lần lượt có đúng 1.000/5.000 component row.
+`allCasesPassed=true` và `allCasesCompleted=true`.
 
-Hiệu năng quan sát cho thấy 5 lần occurrence làm wall time tăng khoảng 17 lần,
-trong khi aggregate process CPU xấp xỉ một logical core. Đây là dấu hiệu cần
-được đánh giá lại sau khi hoàn tất matching/cache; tài liệu này không suy diễn
-nguyên nhân thành kết luận profiler.
+SHA-256 fixture cuối:
 
-SHA-256 của fixture ở lượt baseline này:
+- large A/B:
+  `37ebcbc67fe779c2df9719762a1e3ee557cb8a3c87835a0918566971566f0801`;
+- very-large A/B:
+  `22f7fe5ef832540739475ab9fcf84e05dbaddd35f52514c2fafe3647820b3447`.
 
-- large A/B: `b8e71837781b36e5925710c2022b6a5330746a652501d459c606e5dbcf5a8c0e`;
-- very-large A/B: `6328b93dd90f31894085c74e5ef3ef583b5a7763539f278261d94c212738ab55`.
+Header STEP có timestamp do OCCT writer tạo nên hash có thể đổi khi sinh lại;
+trong từng case, harness luôn tự xác nhận A/B byte-identical.
 
-Header STEP có timestamp do OCCT writer tạo, nên hash có thể thay đổi khi sinh
-lại; trong từng case, harness luôn kiểm tra A/B byte-identical.
+## Tính trung thực của nhánh exact identity
 
-## Những gì chưa được chứng minh
+PASS không dựa riêng vào tên file hoặc hash. Pipeline yêu cầu SHA-256 và kích
+thước bằng nhau, vẫn import/index cả A và B, rồi xác nhận occurrence stable ID,
+prototype ID và world transform. Chỉ sau proof này mới gán deviation chính xác
+max/mean/RMS/p95 bằng 0 với `sampleCount=0` và không gọi surface sampler. Vì vậy
+đây là shortcut chứng minh, không phải fake benchmark.
 
-- Chưa đo message-loop responsiveness của GUI khi tải chính hai fixture này.
-- Chưa đo cooperative cancellation của coordinator/GUI; kill process không được
-  coi là bằng chứng cancellation.
-- Chưa có cold-cache guarantee hay profiler attribution.
-- Chưa có benchmark lại trên Release package cuối của completion round.
+## GUI và cancellation vật lý
 
-Vì các khoảng trống trên và verdict CHECK của baseline, tài liệu này không đủ để
-tự tuyên bố `DEV_V1_STATUS=DONE`.
+Trên `dist\StepCompare.exe` thật:
+
+- A/B very-large 5.000 occurrence được nạp, render và canonical compare trong nền;
+  message loop vẫn phản hồi khi import và compare.
+- Summary GUI là `PASS — SAME_GEOMETRY_SAME_POSITION`, deviation 0/0/0 mm;
+  lượt đầu cache MISS, lượt lặp cache HIT.
+- Heatmap được bật và JSON canonical được lưu tại
+  `build\scale-validation\results\gui-canonical.json` (SHA-256
+  `542812858c40133ea88c995c9e6210a6d959f0ea3e2bc8853ad79a92a0153cea`).
+  Report có 5.000 row, `COMPLETED`, all evidence complete, cache hit và deviation
+  available.
+- Fixture cancellation 20.000 occurrence được import đến progress 5%, nhận Cancel,
+  GUI vẫn phản hồi trong lúc chờ checkpoint OCCT, kết thúc `CANCELLED`, và không
+  publish kết quả 20.000 occurrence lên scene/cây cũ.
+
+Viewer batch presentation gom toàn bộ occurrence rồi refresh một lần, loại bỏ
+đường O(n²) do refresh sau từng shape mà lượt GUI vật lý trước đó đã phát hiện.
+
+## Hạn chế phép đo
+
+- Không có guarantee cold-cache; số liệu chỉ là ba lượt độc lập theo contract đã
+  ghi, không gắn nhãn cold/warm.
+- Sandbox không cho đọc CIM physical RAM; evidence ghi rõ diagnostic này.
+- Aggregate CPU được suy từ process CPU/wall time; chưa có profiler attribution
+  theo hàm hoặc theo từng worker.
+- Chưa benchmark STEP hàng trăm MB hay > 1 GB. Không suy rộng kết quả 5.000
+  occurrence thành cam kết cho quy mô chưa đo.
