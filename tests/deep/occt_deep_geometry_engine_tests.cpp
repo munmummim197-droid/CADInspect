@@ -3,7 +3,9 @@
 
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <STEPControl_StepModelType.hxx>
 #include <STEPControl_Writer.hxx>
@@ -199,6 +201,52 @@ bool rejectAmbiguousAndOpenShell(const std::filesystem::path& directory) {
     return passed;
 }
 
+bool compareHoleAddedAndRemoved(const std::filesystem::path& directory) {
+    const auto solidPath = directory / "solid.step";
+    const auto holedPath = directory / "with-hole.step";
+    const auto solid = BRepPrimAPI_MakeBox(30.0, 20.0, 10.0).Shape();
+    const auto cutter = BRepPrimAPI_MakeCylinder(
+                            gp_Ax2(gp_Pnt(7.0, 8.0, -1.0),
+                                   gp_Dir(0.0, 0.0, 1.0)),
+                            2.0,
+                            12.0)
+                            .Shape();
+    BRepAlgoAPI_Cut cut(solid, cutter);
+    cut.Build();
+    if (cut.HasErrors() || !writeStep(solidPath, solid) ||
+        !writeStep(holedPath, cut.Shape())) {
+        return check(false, "cannot write add/remove-hole fixtures");
+    }
+
+    OcctDeepGeometryEngine engine;
+    const auto solidGeometry = importSinglePrototype(solidPath);
+    const auto holedGeometry = importSinglePrototype(holedPath);
+    const auto added = engine.compareAligned({solidGeometry, holedGeometry});
+    const auto removed = engine.compareAligned({holedGeometry, solidGeometry});
+    bool passed = check(added.status == DeepGeometryStatus::GeometryChanged,
+                        "adding a through-hole must change geometry");
+    passed &= check(removed.status == DeepGeometryStatus::GeometryChanged,
+                    "removing a through-hole must change geometry");
+    return passed;
+}
+
+bool symmetricCylinderRotationIsNotFalsePass(
+    const std::filesystem::path& directory) {
+    const auto pathA = directory / "cylinder-a.step";
+    const auto pathB = directory / "cylinder-b.step";
+    const auto cylinder = BRepPrimAPI_MakeCylinder(5.0, 20.0).Shape();
+    if (!writeStep(pathA, cylinder) ||
+        !writeStep(pathB,
+                   transformed(cylinder, 37.0, gp_Vec(3.0, -4.0, 2.0)))) {
+        return check(false, "cannot write symmetric-cylinder fixtures");
+    }
+    OcctDeepGeometryEngine engine;
+    const auto result = engine.compareAligned(
+        {importSinglePrototype(pathA), importSinglePrototype(pathB)});
+    return check(result.status == DeepGeometryStatus::AlignmentNotProven,
+                 "symmetric cylinder rotation must remain CHECK, never false PASS");
+}
+
 }  // namespace
 
 int main() {
@@ -206,6 +254,8 @@ int main() {
     std::filesystem::create_directories(directory);
     const bool passed = compareSupportedRigidCases(directory) &&
                         compareChangedGeometry(directory) &&
+                        compareHoleAddedAndRemoved(directory) &&
+                        symmetricCylinderRotationIsNotFalsePass(directory) &&
                         rejectAmbiguousAndOpenShell(directory);
     std::filesystem::remove_all(directory);
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
