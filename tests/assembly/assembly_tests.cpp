@@ -204,6 +204,28 @@ void changedMissingAndNewTests() {
     expect(result.hasDifferences, "changed/missing/new must mark differences");
 }
 
+void trustedOccurrencePathPairsChangedGeometryTests() {
+    using namespace stepcompare::assembly;
+    const auto a = requireIndex(model(
+        {prototype("old-prototype", 50.0)},
+        {occurrence("assembly/slot-1", "old-prototype", {}, "Bearing")}));
+    const auto b = requireIndex(model(
+        {prototype("new-prototype", 500.0)},
+        {occurrence("assembly/slot-1", "new-prototype", {}, "Bearing")}));
+
+    MatchingOptions options{};
+    options.stableNodeIdsTrusted = true;
+    const auto result = matchComponents(a, b, options);
+    expect(result.rows.size() == 1 &&
+               result.rows.front().matchStatus == MatchStatus::MatchExact &&
+               result.rows.front().resultStatus ==
+                   ComponentResultStatus::GeometryChanged &&
+               result.rows.front().nodeIdA == "assembly/slot-1" &&
+               result.rows.front().nodeIdB == "assembly/slot-1",
+           "same trusted occurrence path with compatible name must be one "
+           "geometry-changed pair, never MISSING plus NEW");
+}
+
 void prototypeDeepDeduplicationTests() {
     using namespace stepcompare::assembly;
     const auto a = requireIndex(model(
@@ -262,6 +284,7 @@ int main() {
     indexTests();
     exactPlacementTests();
     changedMissingAndNewTests();
+    trustedOccurrencePathPairsChangedGeometryTests();
     prototypeDeepDeduplicationTests();
     failClosedCandidateTests();
 

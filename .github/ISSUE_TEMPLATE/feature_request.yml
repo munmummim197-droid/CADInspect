@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a focused CADInspect improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: semantics
+    attributes:
+      label: Comparison and compatibility impact
+      description: Explain any effect on fail-closed results, canonical JSON, performance or package compatibility.

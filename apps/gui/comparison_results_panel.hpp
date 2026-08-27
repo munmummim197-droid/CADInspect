@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <stepcompare/reporting/report.hpp>
@@ -27,6 +28,16 @@ public:
     explicit ComparisonResultsPanel(QWidget* parent = nullptr);
 
     void setReport(const stepcompare::reporting::Report& report);
+    void setAssemblyFeatureDeferred();
+    void setFeaturePairLoading(std::string_view stableIdA,
+                               std::string_view stableIdB);
+    void setFeaturePairResult(
+        const std::vector<stepcompare::reporting::FeatureRow>& features,
+        std::string_view stableIdA,
+        std::string_view stableIdB);
+    void setFeaturePairError(std::string_view stableIdA,
+                             std::string_view stableIdB);
+    void setPartIdentities(std::vector<PreviewPartIdentity> identities);
     void clearReport();
     void selectStableId(const stepcompare::viewer::StableSelectionId& stableId);
     void setSelectionHandler(SelectionHandler handler);
@@ -36,23 +47,28 @@ public:
 private:
     void applyParameterSpans();
     void applyFilter(ComponentFilter filter);
-    void publishSelection(const QModelIndex& proxyIndex, bool locate);
+    void showPartDetails(const QModelIndex& proxyIndex, bool locateRepresentative);
+    void publishSelection(const QModelIndex& index, bool locate);
     void publishFeatureSelection(const QModelIndex& index, bool locate);
     void refreshCount();
     void refreshHeatmapLegend();
 
     QTabWidget* tabs_{};
-    QWidget* componentPage_{};
+    QWidget* partPage_{};
     QWidget* featurePage_{};
     QTableView* parametersTable_{};
-    QTableView* componentsTable_{};
+    QTableView* partsTable_{};
+    QTableView* occurrencesTable_{};
     QTableView* featuresTable_{};
     QComboBox* filterCombo_{};
-    QLabel* componentCount_{};
+    QLabel* partCount_{};
+    QLabel* occurrenceCount_{};
     QLabel* heatmapLegend_{};
+    QLabel* featureContext_{};
     ComparisonParameterModel* parameterModel_{};
+    PartComparisonModel* partModel_{};
+    ComponentFilterProxyModel* partProxy_{};
     ComponentComparisonModel* componentModel_{};
-    ComponentFilterProxyModel* componentProxy_{};
     FeatureComparisonModel* featureModel_{};
     SelectionHandler selectionHandler_{};
     FeatureSelectionHandler featureSelectionHandler_{};
@@ -60,6 +76,7 @@ private:
     double heatmapToleranceMm_{};
     bool heatmapEvidenceAvailable_{};
     bool heatmapEnabled_{};
+    std::vector<PreviewPartIdentity> partIdentities_{};
 };
 
 }  // namespace stepcompare::gui

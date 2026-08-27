@@ -172,7 +172,15 @@ void jsonTests() {
 }
 
 void csvTests() {
-    const auto csv = stepcompare::reporting::toCsv(sampleReport());
+    auto report = sampleReport();
+    report.components[0].nameB = "=HYPERLINK(\"https://invalid.example\")";
+    auto formulaRow = report.components[0];
+    formulaRow.idA = "+SUM(1,2)";
+    formulaRow.idB = "-cmd|' /C calc'!A0";
+    formulaRow.nameA = "@malicious";
+    formulaRow.nameB = "\t=1+1";
+    report.components.push_back(std::move(formulaRow));
+    const auto csv = stepcompare::reporting::toCsv(report);
     expect(csv.ends_with("\r\n"), "CSV records must use CRLF endings");
     bool hasBareLf = false;
     for (std::size_t index = 0; index < csv.size(); ++index) {
@@ -196,6 +204,15 @@ void csvTests() {
            "CSV must expose cache evidence");
     expect(csv.find("metadata,deepDeviation.sampleCount,128") != std::string::npos,
            "CSV must expose deviation sample count");
+    expect(csv.find("'=HYPERLINK") != std::string::npos &&
+               csv.find("\"'+SUM(1,2)\"") != std::string::npos &&
+               csv.find("'-cmd|") != std::string::npos &&
+               csv.find("'@malicious") != std::string::npos &&
+               csv.find("'\t=1+1") != std::string::npos,
+           "CSV must neutralize spreadsheet formula prefixes from untrusted text");
+    expect(csv.find(",-2.5,") != std::string::npos &&
+               csv.find(",'-2.5,") == std::string::npos,
+           "CSV must preserve strict negative numeric cells as numbers");
 }
 
 void localeInvariantTests() {

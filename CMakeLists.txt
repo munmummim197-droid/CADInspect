@@ -9,6 +9,9 @@ project(
 option(STEPCOMPARE_BUILD_TESTS "Build StepCompare automated tests" ON)
 option(STEPCOMPARE_ENABLE_QT "Build the Qt desktop application" OFF)
 option(STEPCOMPARE_ENABLE_OCCT "Build OpenCASCADE adapters" OFF)
+option(STEPCOMPARE_HARDEN_RELEASE
+    "Enable native Release binary hardening and whole-program optimization"
+    ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +26,25 @@ if(MSVC)
         /permissive-
         /Zc:__cplusplus
         /utf-8)
+    if(STEPCOMPARE_HARDEN_RELEASE)
+        target_compile_options(stepcompare_project_options INTERFACE
+            $<$<CONFIG:Release>:/GL>
+            $<$<CONFIG:Release>:/GF>
+            $<$<CONFIG:Release>:/Gw>
+            $<$<CONFIG:Release>:/Gy>
+            $<$<CONFIG:Release>:/guard:cf>)
+        target_link_options(stepcompare_project_options INTERFACE
+            $<$<CONFIG:Release>:/LTCG>
+            $<$<CONFIG:Release>:/OPT:REF>
+            $<$<CONFIG:Release>:/OPT:ICF>
+            $<$<CONFIG:Release>:/INCREMENTAL:NO>
+            $<$<CONFIG:Release>:/DEBUG:NONE>
+            $<$<CONFIG:Release>:/GUARD:CF>
+            $<$<CONFIG:Release>:/DYNAMICBASE>
+            $<$<CONFIG:Release>:/HIGHENTROPYVA>
+            $<$<CONFIG:Release>:/NXCOMPAT>
+            $<$<CONFIG:Release>:/CETCOMPAT>)
+    endif()
 else()
     target_compile_options(stepcompare_project_options INTERFACE
         -Wall

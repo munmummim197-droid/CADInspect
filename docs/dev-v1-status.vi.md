@@ -83,7 +83,7 @@ mọi kết quả trả về sau hủy bị chặn publish.
 
 ## Portable package cuối
 
-- Package root: `D:\DW\StepCompare\dist`.
+- Package root: `dist/` (tương đối từ repository root).
 - 52 tệp, tổng `65.933.632` byte.
 - `StepCompare.exe` SHA-256:
   `27d6ff90be491e1c8d2ae43b41085cd9241776b276bed4b0aaeec2c573687dff`.

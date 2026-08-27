@@ -1,6 +1,7 @@
 #pragma once
 
 #include "preview_quality.hpp"
+#include "step_preview_model.hpp"
 
 #include <vector>
 
@@ -16,7 +17,7 @@ namespace stepcompare::gui {
 
 class StepPreviewSceneAdapter final {
 public:
-    [[nodiscard]] std::vector<stepcompare::viewer::ResultRowSnapshot> display(
+    [[nodiscard]] PreviewScenePlan display(
         const stepcompare::import::ImportedModel& model,
         stepcompare::viewer::ModelSide side,
         const PreviewQualityPolicy& quality,

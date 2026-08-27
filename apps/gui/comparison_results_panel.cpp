@@ -7,8 +7,10 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLocale>
+#include <QMenu>
 #include <QModelIndex>
 #include <QSignalBlocker>
+#include <QSplitter>
 #include <QTableView>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -20,7 +22,7 @@ namespace {
 
 QString millimeters(const double value) {
     static const QLocale locale(QLocale::Vietnamese, QLocale::Vietnam);
-    return QStringLiteral("%1 mm").arg(locale.toString(value, 'f', 4));
+    return QStringLiteral("%1 mm").arg(locale.toString(value, 'f', 2));
 }
 
 void configureTable(QTableView& table) {
@@ -69,13 +71,13 @@ ComparisonResultsPanel::ComparisonResultsPanel(QWidget* parent) : QWidget(parent
     parametersLayout->addWidget(parametersTable_);
     tabs_->addTab(parametersPage, tr("Thông số so sánh"));
 
-    componentPage_ = new QWidget(tabs_);
-    auto* componentLayout = new QVBoxLayout(componentPage_);
-    componentLayout->setContentsMargins(0, 0, 0, 0);
-    componentLayout->setSpacing(4);
+    partPage_ = new QWidget(tabs_);
+    auto* partLayout = new QVBoxLayout(partPage_);
+    partLayout->setContentsMargins(0, 0, 0, 0);
+    partLayout->setSpacing(4);
     auto* filterLayout = new QHBoxLayout();
-    filterLayout->addWidget(new QLabel(tr("Bộ lọc:"), componentPage_));
-    filterCombo_ = new QComboBox(componentPage_);
+    filterLayout->addWidget(new QLabel(tr("Bộ lọc Part:"), partPage_));
+    filterCombo_ = new QComboBox(partPage_);
     filterCombo_->setObjectName(QStringLiteral("componentFilterCombo"));
     const std::pair<const char*, ComponentFilter> filters[] = {
         {"Tất cả", ComponentFilter::All},
@@ -91,50 +93,101 @@ ComparisonResultsPanel::ComparisonResultsPanel(QWidget* parent) : QWidget(parent
         filterCombo_->addItem(tr(label), static_cast<int>(filter));
     }
     filterLayout->addWidget(filterCombo_);
-    componentCount_ = new QLabel(tr("0 linh kiện"), componentPage_);
-    componentCount_->setObjectName(QStringLiteral("componentComparisonCount"));
+    partCount_ = new QLabel(tr("0 Part"), partPage_);
+    partCount_->setObjectName(QStringLiteral("partComparisonCount"));
     filterLayout->addStretch(1);
-    filterLayout->addWidget(componentCount_);
-    componentLayout->addLayout(filterLayout);
+    filterLayout->addWidget(partCount_);
+    partLayout->addLayout(filterLayout);
 
-    componentModel_ = new ComponentComparisonModel(componentPage_);
-    componentProxy_ = new ComponentFilterProxyModel(componentPage_);
-    componentProxy_->setSourceModel(componentModel_);
-    componentsTable_ = new QTableView(componentPage_);
-    componentsTable_->setObjectName(QStringLiteral("componentComparisonTable"));
-    componentsTable_->setModel(componentProxy_);
-    configureTable(*componentsTable_);
-    componentsTable_->setSortingEnabled(true);
-    componentsTable_->horizontalHeader()->setSectionResizeMode(
+    auto* masterDetail = new QSplitter(Qt::Vertical, partPage_);
+    partModel_ = new PartComparisonModel(masterDetail);
+    partProxy_ = new ComponentFilterProxyModel(masterDetail);
+    partProxy_->setSourceModel(partModel_);
+    partsTable_ = new QTableView(masterDetail);
+    partsTable_->setObjectName(QStringLiteral("partComparisonTable"));
+    partsTable_->setModel(partProxy_);
+    configureTable(*partsTable_);
+    partsTable_->setContextMenuPolicy(Qt::CustomContextMenu);
+    // Keep the summary useful at the application's minimum supported height:
+    // the header plus at least two Part rows must remain visible before the
+    // occurrence detail receives the rest of the splitter space.
+    partsTable_->setMinimumHeight(82);
+    partsTable_->setSortingEnabled(true);
+    partsTable_->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    partsTable_->horizontalHeader()->setSectionResizeMode(
+        PartComparisonModel::Part, QHeaderView::Stretch);
+    partsTable_->horizontalHeader()->setSectionResizeMode(
+        PartComparisonModel::Notes, QHeaderView::Stretch);
+    for (int column = PartComparisonModel::QuantityA;
+         column < PartComparisonModel::ColumnCount; ++column) {
+        if (column != PartComparisonModel::Notes) {
+            partsTable_->horizontalHeader()->setSectionResizeMode(
+                column, QHeaderView::ResizeToContents);
+        }
+    }
+
+    auto* occurrencePage = new QWidget(masterDetail);
+    auto* occurrenceLayout = new QVBoxLayout(occurrencePage);
+    occurrenceLayout->setContentsMargins(0, 4, 0, 0);
+    occurrenceLayout->setSpacing(3);
+    occurrenceCount_ = new QLabel(tr("Chọn một Part để xem occurrence"), occurrencePage);
+    occurrenceCount_->setObjectName(QStringLiteral("occurrenceComparisonCount"));
+    occurrenceCount_->setStyleSheet(
+        QStringLiteral("QLabel { font-weight:600; color:#27445d; padding:2px; }"));
+    occurrenceLayout->addWidget(occurrenceCount_);
+    componentModel_ = new ComponentComparisonModel(occurrencePage);
+    occurrencesTable_ = new QTableView(occurrencePage);
+    occurrencesTable_->setObjectName(QStringLiteral("occurrenceComparisonTable"));
+    occurrencesTable_->setModel(componentModel_);
+    configureTable(*occurrencesTable_);
+    occurrencesTable_->setContextMenuPolicy(Qt::CustomContextMenu);
+    occurrencesTable_->setSortingEnabled(true);
+    occurrencesTable_->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    occurrencesTable_->horizontalHeader()->setSectionResizeMode(
         ComponentComparisonModel::Component, QHeaderView::Stretch);
-    componentsTable_->horizontalHeader()->setSectionResizeMode(
+    occurrencesTable_->horizontalHeader()->setSectionResizeMode(
         ComponentComparisonModel::Status, QHeaderView::ResizeToContents);
     for (int column = ComponentComparisonModel::DeltaX;
-         column < ComponentComparisonModel::ColumnCount;
-         ++column) {
-        componentsTable_->horizontalHeader()->setSectionResizeMode(
+         column < ComponentComparisonModel::ColumnCount; ++column) {
+        occurrencesTable_->horizontalHeader()->setSectionResizeMode(
             column, QHeaderView::ResizeToContents);
     }
-    componentLayout->addWidget(componentsTable_);
+    occurrenceLayout->addWidget(occurrencesTable_);
+    masterDetail->addWidget(partsTable_);
+    masterDetail->addWidget(occurrencePage);
+    masterDetail->setChildrenCollapsible(false);
+    masterDetail->setStretchFactor(0, 3);
+    masterDetail->setStretchFactor(1, 1);
+    masterDetail->setSizes({150, 90});
+    partLayout->addWidget(masterDetail, 1);
 
-    heatmapLegend_ = new QLabel(componentPage_);
+    heatmapLegend_ = new QLabel(partPage_);
     heatmapLegend_->setObjectName(QStringLiteral("heatmapNumericalLegend"));
     heatmapLegend_->setWordWrap(true);
     heatmapLegend_->setStyleSheet(QStringLiteral(
         "QLabel { padding: 4px 8px; border: 1px solid #c8d4de; "
         "background: qlineargradient(x1:0,y1:0,x2:1,y2:0, "
         "stop:0 #dff4e5, stop:0.55 #fff2b8, stop:1 #ffd8d0); color:#182532; }"));
-    componentLayout->addWidget(heatmapLegend_);
-    tabs_->addTab(componentPage_, tr("So sánh linh kiện"));
+    partLayout->addWidget(heatmapLegend_);
+    tabs_->addTab(partPage_, tr("So sánh Part"));
 
     featurePage_ = new QWidget(tabs_);
     auto* featureLayout = new QVBoxLayout(featurePage_);
     featureLayout->setContentsMargins(0, 0, 0, 0);
+    featureLayout->setSpacing(4);
+    featureContext_ = new QLabel(featurePage_);
+    featureContext_->setObjectName(QStringLiteral("featureComparisonContext"));
+    featureContext_->setWordWrap(true);
+    featureContext_->setStyleSheet(QStringLiteral(
+        "QLabel { padding:5px 8px; border:1px solid #c8d4de; "
+        "background:#eef5fa; color:#20384c; font-weight:600; }"));
+    featureLayout->addWidget(featureContext_);
     featureModel_ = new FeatureComparisonModel(featurePage_);
     featuresTable_ = new QTableView(featurePage_);
     featuresTable_->setObjectName(QStringLiteral("featureComparisonTable"));
     featuresTable_->setModel(featureModel_);
     configureTable(*featuresTable_);
+    featuresTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     featuresTable_->setWordWrap(true);
     featuresTable_->verticalHeader()->setDefaultSectionSize(72);
     featuresTable_->setSortingEnabled(false);
@@ -153,17 +206,25 @@ ComparisonResultsPanel::ComparisonResultsPanel(QWidget* parent) : QWidget(parent
     featuresTable_->horizontalHeader()->setSectionResizeMode(
         FeatureComparisonModel::Result, QHeaderView::ResizeToContents);
     featureLayout->addWidget(featuresTable_);
-    tabs_->addTab(featurePage_, tr("So sánh feature"));
+    tabs_->addTab(featurePage_, tr("So sánh Feature"));
     root->addWidget(tabs_);
 
     connect(filterCombo_, &QComboBox::currentIndexChanged, this, [this](const int index) {
         applyFilter(static_cast<ComponentFilter>(filterCombo_->itemData(index).toInt()));
     });
-    connect(componentsTable_->selectionModel(),
+    connect(partsTable_->selectionModel(),
+            &QItemSelectionModel::currentRowChanged,
+            this,
+            [this](const QModelIndex& current) {
+                showPartDetails(current, false);
+            });
+    connect(partsTable_, &QTableView::doubleClicked, this,
+            [this](const QModelIndex& index) { showPartDetails(index, true); });
+    connect(occurrencesTable_->selectionModel(),
             &QItemSelectionModel::currentRowChanged,
             this,
             [this](const QModelIndex& current) { publishSelection(current, false); });
-    connect(componentsTable_, &QTableView::doubleClicked, this,
+    connect(occurrencesTable_, &QTableView::doubleClicked, this,
             [this](const QModelIndex& index) { publishSelection(index, true); });
     connect(featuresTable_->selectionModel(),
             &QItemSelectionModel::currentRowChanged,
@@ -175,6 +236,59 @@ ComparisonResultsPanel::ComparisonResultsPanel(QWidget* parent) : QWidget(parent
             [this](const QModelIndex& index) {
                 publishFeatureSelection(index, true);
             });
+    connect(partsTable_, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint& position) {
+                const QModelIndex index = partsTable_->indexAt(position);
+                if (!index.isValid()) {
+                    return;
+                }
+                partsTable_->setCurrentIndex(index);
+                QMenu menu(partsTable_);
+                auto* details = menu.addAction(tr("Xem danh sách occurrence"));
+                auto* isolate = menu.addAction(
+                    tr("Show Only Pair — occurrence đại diện"));
+                QAction* chosen =
+                    menu.exec(partsTable_->viewport()->mapToGlobal(position));
+                if (chosen == details) {
+                    showPartDetails(index, false);
+                } else if (chosen == isolate) {
+                    showPartDetails(index, true);
+                }
+            });
+    connect(occurrencesTable_, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint& position) {
+                const QModelIndex index = occurrencesTable_->indexAt(position);
+                if (!index.isValid()) {
+                    return;
+                }
+                occurrencesTable_->setCurrentIndex(index);
+                QMenu menu(occurrencesTable_);
+                auto* synchronize =
+                    menu.addAction(tr("Đồng bộ Tree ↔ 3D Viewer"));
+                auto* isolate = menu.addAction(tr("Show Only Pair"));
+                QAction* chosen = menu.exec(
+                    occurrencesTable_->viewport()->mapToGlobal(position));
+                if (chosen == synchronize) {
+                    publishSelection(index, false);
+                } else if (chosen == isolate) {
+                    publishSelection(index, true);
+                }
+            });
+    connect(featuresTable_, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint& position) {
+                const QModelIndex index = featuresTable_->indexAt(position);
+                if (!index.isValid()) {
+                    return;
+                }
+                featuresTable_->setCurrentIndex(index);
+                QMenu menu(featuresTable_);
+                auto* locate =
+                    menu.addAction(tr("Locate / Zoom / Highlight Feature"));
+                if (menu.exec(featuresTable_->viewport()->mapToGlobal(position)) ==
+                    locate) {
+                    publishFeatureSelection(index, true);
+                }
+            });
 
     refreshCount();
     refreshHeatmapLegend();
@@ -183,49 +297,125 @@ ComparisonResultsPanel::ComparisonResultsPanel(QWidget* parent) : QWidget(parent
 void ComparisonResultsPanel::setReport(
     const stepcompare::reporting::Report& report) {
     parameterModel_->setReport(report);
-    componentModel_->setReport(report);
+    partModel_->setReport(report, partIdentities_);
+    componentModel_->clearReport();
     featureModel_->setReport(report);
+    featureContext_->setText(
+        report.features.empty()
+            ? tr("Không nhận diện được Feature có evidence hình học trong cặp Part đơn.")
+            : tr("Part đơn A/B — Feature được so sánh tự động."));
     heatmapMaximumMm_ = report.deepDeviation.maximumMm;
     heatmapToleranceMm_ = report.tolerances.surfaceMm;
     heatmapEvidenceAvailable_ = report.deepDeviation.available;
     applyParameterSpans();
-    applyFilter(componentProxy_->componentFilter());
+    applyFilter(partProxy_->componentFilter());
     refreshHeatmapLegend();
+}
+
+void ComparisonResultsPanel::setAssemblyFeatureDeferred() {
+    featureModel_->clearReport();
+    featureContext_->setText(tr(
+        "Assembly — chọn một occurrence rồi bấm Show Only Pair để chỉ so sánh Feature của đúng pair A/B."));
+}
+
+void ComparisonResultsPanel::setFeaturePairLoading(
+    const std::string_view stableIdA,
+    const std::string_view stableIdB) {
+    featureModel_->clearReport();
+    featureContext_->setText(
+        tr("Đang so sánh Feature của pair:\nA: %1\nB: %2")
+            .arg(QString::fromUtf8(stableIdA.data(),
+                                   static_cast<qsizetype>(stableIdA.size())),
+                 QString::fromUtf8(stableIdB.data(),
+                                   static_cast<qsizetype>(stableIdB.size()))));
+}
+
+void ComparisonResultsPanel::setFeaturePairResult(
+    const std::vector<stepcompare::reporting::FeatureRow>& features,
+    const std::string_view stableIdA,
+    const std::string_view stableIdB) {
+    featureModel_->setFeatures(features);
+    featureContext_->setText(
+        features.empty()
+            ? tr("Pair A/B đã phân tích nhưng chưa nhận diện được Feature có evidence hình học.\nA: %1\nB: %2")
+                  .arg(QString::fromUtf8(stableIdA.data(),
+                                         static_cast<qsizetype>(stableIdA.size())),
+                       QString::fromUtf8(stableIdB.data(),
+                                         static_cast<qsizetype>(stableIdB.size())))
+            : tr("Chỉ hiển thị Feature của pair đang isolate — %1 dòng. FAIL được highlight trực tiếp trong 3D Viewer.\nA: %2\nB: %3")
+                  .arg(features.size())
+                  .arg(QString::fromUtf8(stableIdA.data(),
+                                         static_cast<qsizetype>(stableIdA.size())),
+                       QString::fromUtf8(stableIdB.data(),
+                                         static_cast<qsizetype>(stableIdB.size()))));
+}
+
+void ComparisonResultsPanel::setFeaturePairError(
+    const std::string_view stableIdA,
+    const std::string_view stableIdB) {
+    featureModel_->clearReport();
+    featureContext_->setText(
+        tr("CHECK — không tạo được feature evidence cho pair; không suy luận PASS.\nA: %1\nB: %2")
+            .arg(QString::fromUtf8(stableIdA.data(),
+                                   static_cast<qsizetype>(stableIdA.size())),
+                 QString::fromUtf8(stableIdB.data(),
+                                   static_cast<qsizetype>(stableIdB.size()))));
+}
+
+void ComparisonResultsPanel::setPartIdentities(
+    std::vector<PreviewPartIdentity> identities) {
+    partIdentities_ = std::move(identities);
 }
 
 void ComparisonResultsPanel::clearReport() {
     parameterModel_->clearReport();
+    partModel_->clearReport();
     componentModel_->clearReport();
     featureModel_->clearReport();
+    featureContext_->setText(tr("Chưa có kết quả Feature."));
     heatmapMaximumMm_ = 0.0;
     heatmapToleranceMm_ = 0.0;
     heatmapEvidenceAvailable_ = false;
+    occurrenceCount_->setText(tr("Chọn một Part để xem occurrence"));
     refreshCount();
     refreshHeatmapLegend();
 }
 
 void ComparisonResultsPanel::selectStableId(
     const stepcompare::viewer::StableSelectionId& stableId) {
-    QModelIndex sourceIndex = componentModel_->indexForStableId(stableId.value());
-    if (!sourceIndex.isValid()) {
+    QModelIndex partSourceIndex = partModel_->indexForStableId(stableId.value());
+    if (!partSourceIndex.isValid()) {
         return;
     }
-    QModelIndex proxyIndex = componentProxy_->mapFromSource(sourceIndex);
+    QModelIndex proxyIndex = partProxy_->mapFromSource(partSourceIndex);
     if (!proxyIndex.isValid()) {
         const QSignalBlocker blocker(filterCombo_);
         filterCombo_->setCurrentIndex(0);
-        componentProxy_->setComponentFilter(ComponentFilter::All);
-        proxyIndex = componentProxy_->mapFromSource(sourceIndex);
+        partProxy_->setComponentFilter(ComponentFilter::All);
+        proxyIndex = partProxy_->mapFromSource(partSourceIndex);
         refreshCount();
     }
     if (!proxyIndex.isValid()) {
         return;
     }
-    const QSignalBlocker blocker(componentsTable_->selectionModel());
-    componentsTable_->setCurrentIndex(proxyIndex);
-    componentsTable_->selectRow(proxyIndex.row());
-    componentsTable_->scrollTo(proxyIndex, QAbstractItemView::PositionAtCenter);
-    tabs_->setCurrentWidget(componentPage_);
+    {
+        const QSignalBlocker blocker(partsTable_->selectionModel());
+        partsTable_->setCurrentIndex(proxyIndex);
+        partsTable_->selectRow(proxyIndex.row());
+        partsTable_->scrollTo(proxyIndex, QAbstractItemView::PositionAtCenter);
+    }
+    showPartDetails(proxyIndex, false);
+    const QModelIndex occurrenceIndex =
+        componentModel_->indexForStableId(stableId.value());
+    if (occurrenceIndex.isValid()) {
+        const QSignalBlocker occurrenceBlocker(
+            occurrencesTable_->selectionModel());
+        occurrencesTable_->setCurrentIndex(occurrenceIndex);
+        occurrencesTable_->selectRow(occurrenceIndex.row());
+        occurrencesTable_->scrollTo(
+            occurrenceIndex, QAbstractItemView::PositionAtCenter);
+    }
+    tabs_->setCurrentWidget(partPage_);
 
     const QModelIndex featureIndex = featureModel_->indexForOwnerStableId(stableId.value());
     if (featureIndex.isValid()) {
@@ -264,17 +454,52 @@ void ComparisonResultsPanel::applyParameterSpans() {
 }
 
 void ComparisonResultsPanel::applyFilter(const ComponentFilter filter) {
-    componentProxy_->setComponentFilter(filter);
+    partProxy_->setComponentFilter(filter);
     refreshCount();
+    if (partProxy_->rowCount() > 0) {
+        const QModelIndex first = partProxy_->index(0, 0);
+        partsTable_->setCurrentIndex(first);
+        partsTable_->selectRow(0);
+        showPartDetails(first, false);
+    } else {
+        componentModel_->clearReport();
+        occurrenceCount_->setText(tr("Không có Part phù hợp bộ lọc"));
+    }
 }
 
-void ComparisonResultsPanel::publishSelection(const QModelIndex& proxyIndex,
-                                              const bool locate) {
-    if (!proxyIndex.isValid() || !selectionHandler_) {
+void ComparisonResultsPanel::showPartDetails(
+    const QModelIndex& proxyIndex,
+    const bool locateRepresentative) {
+    if (!proxyIndex.isValid()) {
+        componentModel_->clearReport();
+        occurrenceCount_->setText(tr("Chọn một Part để xem occurrence"));
         return;
     }
-    const QModelIndex sourceIndex = componentProxy_->mapToSource(proxyIndex);
-    const std::string stableId = componentModel_->preferredStableId(sourceIndex);
+    const QModelIndex sourceIndex = partProxy_->mapToSource(proxyIndex);
+    const auto& occurrences = partModel_->occurrences(sourceIndex);
+    componentModel_->setRows(occurrences);
+    const QString partName =
+        partModel_->data(partModel_->index(sourceIndex.row(),
+                                           PartComparisonModel::Part))
+            .toString();
+    occurrenceCount_->setText(
+        tr("Occurrence của Part: %1 — %2 dòng")
+            .arg(partName)
+            .arg(componentModel_->rowCount()));
+    if (locateRepresentative && selectionHandler_) {
+        const std::string stableId = partModel_->preferredStableId(sourceIndex);
+        if (!stableId.empty()) {
+            selectionHandler_(stableId, true);
+        }
+    }
+}
+
+void ComparisonResultsPanel::publishSelection(const QModelIndex& index,
+                                              const bool locate) {
+    if (!index.isValid() || !selectionHandler_) {
+        return;
+    }
+    const std::string stableId = componentModel_->preferredStableId(index);
     if (!stableId.empty()) {
         selectionHandler_(stableId, locate);
     }
@@ -293,10 +518,10 @@ void ComparisonResultsPanel::publishFeatureSelection(const QModelIndex& index,
 }
 
 void ComparisonResultsPanel::refreshCount() {
-    componentCount_->setText(
-        tr("Hiển thị %1 / %2 linh kiện")
-            .arg(componentProxy_->rowCount())
-            .arg(componentModel_->rowCount()));
+    partCount_->setText(
+        tr("Hiển thị %1 / %2 Part")
+            .arg(partProxy_->rowCount())
+            .arg(partModel_->rowCount()));
 }
 
 void ComparisonResultsPanel::refreshHeatmapLegend() {

@@ -28,8 +28,7 @@ gp_Trsf toOcctTransform(const std::array<double, 16>& m) {
 
 }  // namespace
 
-std::vector<stepcompare::viewer::ResultRowSnapshot>
-StepPreviewSceneAdapter::display(
+PreviewScenePlan StepPreviewSceneAdapter::display(
     const stepcompare::import::ImportedModel& model,
     const stepcompare::viewer::ModelSide side,
     const PreviewQualityPolicy& quality,
@@ -70,7 +69,7 @@ StepPreviewSceneAdapter::display(
     }
     viewer.refreshPresentations();
     viewer.fitAll();
-    return std::move(plan.rows);
+    return plan;
 }
 
 }  // namespace stepcompare::gui

@@ -8,6 +8,7 @@
 #include <stepcompare/viewer/viewer_state.hpp>
 
 class QAction;
+class QComboBox;
 class QMainWindow;
 class QToolBar;
 
@@ -26,6 +27,7 @@ public:
     using CommandHandler = std::function<void()>;
 
     ViewerActions(QMainWindow& window,
+                  CommandHandler newComparisonHandler,
                   CommandHandler openAHandler,
                   CommandHandler openBHandler,
                   CommandHandler compareHandler,
@@ -39,8 +41,15 @@ public:
                   CommandHandler fitAllHandler,
                   CommandHandler resetViewHandler);
 
+    void setPresentationMode(stepcompare::viewer::PresentationMode mode);
+    void setLayer(stepcompare::viewer::SceneLayer layer);
+    void setHeatmapEnabled(bool enabled);
+
 private:
     QToolBar* toolbar_{};
+    QComboBox* presentationCombo_{};
+    QAction* heatmapAction_{};
+    std::array<QAction*, 4> layerActions_{};
 };
 
 }  // namespace stepcompare::gui

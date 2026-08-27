@@ -42,7 +42,16 @@ enum class ComparisonPhase {
     ImportB,
     AssemblyIndex,
     Matching,
+    FeatureEvidence,
     Complete,
+};
+
+// GUI assembly comparisons defer feature recognition until the user isolates
+// one canonical occurrence pair. CLI/report workflows keep the established
+// all-components behavior by default.
+enum class FeatureEvidenceScope {
+    AllMatchedComponents,
+    SinglePartOnly,
 };
 
 struct ComparisonProgress final {
@@ -70,6 +79,8 @@ struct ComparisonRequest final {
     std::optional<cache::FileIdentity> identityB{};
     std::string importConfiguration{"occt-xcaf-mm-v1"};
     bool enableCache{true};
+    FeatureEvidenceScope featureEvidenceScope{
+        FeatureEvidenceScope::AllMatchedComponents};
 };
 
 struct ComparisonResult final {
@@ -77,6 +88,23 @@ struct ComparisonResult final {
     domain::Verdict verdict{};
     reporting::Report report{};
     std::vector<ComparisonDiagnostic> diagnostics;
+};
+
+struct FeaturePairComparisonRequest final {
+    std::u8string inputAUtf8;
+    std::u8string inputBUtf8;
+    std::string componentIdA;
+    std::string componentIdB;
+    domain::ToleranceSet tolerances{};
+    std::stop_token cancellation{};
+};
+
+struct FeaturePairComparisonResult final {
+    ComparisonRunStatus status{ComparisonRunStatus::ProcessingError};
+    std::string componentIdA{};
+    std::string componentIdB{};
+    std::vector<reporting::FeatureRow> features{};
+    std::vector<ComparisonDiagnostic> diagnostics{};
 };
 
 class ComparisonCoordinator final {
@@ -94,6 +122,11 @@ public:
 
     [[nodiscard]] ComparisonResult compare(
         const ComparisonRequest& request) noexcept;
+
+    // Computes additive feature evidence for exactly one explicitly selected
+    // occurrence pair. It never changes or re-reduces the whole-model verdict.
+    [[nodiscard]] FeaturePairComparisonResult compareFeaturePair(
+        const FeaturePairComparisonRequest& request) noexcept;
 
 private:
     import::StepImportPort& importer_;

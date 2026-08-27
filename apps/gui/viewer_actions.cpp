@@ -4,11 +4,16 @@
 #include <QActionGroup>
 #include <QMainWindow>
 #include <QComboBox>
+#include <QKeySequence>
+#include <QMenu>
+#include <QMenuBar>
+#include <QSignalBlocker>
 #include <QToolBar>
 
 namespace stepcompare::gui {
 
 ViewerActions::ViewerActions(QMainWindow& window,
+                             CommandHandler newComparisonHandler,
                              CommandHandler openAHandler,
                              CommandHandler openBHandler,
                              CommandHandler compareHandler,
@@ -22,17 +27,36 @@ ViewerActions::ViewerActions(QMainWindow& window,
                              CommandHandler fitAllHandler,
                              CommandHandler resetViewHandler)
     : QObject(&window) {
+    (void)orientationHandler;
     toolbar_ = window.addToolBar(QObject::tr("3D Viewer"));
     toolbar_->setObjectName(QStringLiteral("viewerToolbar"));
 
-    connect(toolbar_->addAction(QObject::tr("Open A")),
+    auto* fileMenu = window.menuBar()->addMenu(QObject::tr("Tệp"));
+    auto* newComparisonAction = new QAction(QObject::tr("So sánh mới"), this);
+    newComparisonAction->setShortcut(QKeySequence::New);
+    newComparisonAction->setToolTip(
+        QObject::tr("Mở cửa sổ so sánh mới và giữ nguyên phiên hiện tại"));
+    connect(newComparisonAction,
+            &QAction::triggered,
+            this,
+            [handler = std::move(newComparisonHandler)] { handler(); });
+    fileMenu->addAction(newComparisonAction);
+    toolbar_->addAction(newComparisonAction);
+
+    auto* openAAction = new QAction(QObject::tr("Open A"), this);
+    auto* openBAction = new QAction(QObject::tr("Open B"), this);
+    fileMenu->addAction(openAAction);
+    fileMenu->addAction(openBAction);
+    connect(openAAction,
             &QAction::triggered,
             this,
             [handler = std::move(openAHandler)] { handler(); });
-    connect(toolbar_->addAction(QObject::tr("Open B")),
+    connect(openBAction,
             &QAction::triggered,
             this,
             [handler = std::move(openBHandler)] { handler(); });
+    toolbar_->addAction(openAAction);
+    toolbar_->addAction(openBAction);
     connect(toolbar_->addAction(QObject::tr("Compare")),
             &QAction::triggered,
             this,
@@ -45,9 +69,9 @@ ViewerActions::ViewerActions(QMainWindow& window,
             &QAction::triggered,
             this,
             [handler = std::move(saveCsvHandler)] { handler(); });
-    auto* heatmapAction = toolbar_->addAction(QObject::tr("HEATMAP"));
-    heatmapAction->setCheckable(true);
-    connect(heatmapAction,
+    heatmapAction_ = toolbar_->addAction(QObject::tr("HEATMAP"));
+    heatmapAction_->setCheckable(true);
+    connect(heatmapAction_,
             &QAction::toggled,
             this,
             [handler = std::move(heatmapHandler)](const bool enabled) {
@@ -55,30 +79,30 @@ ViewerActions::ViewerActions(QMainWindow& window,
             });
     toolbar_->addSeparator();
 
-    auto* presentationCombo = new QComboBox(toolbar_);
-    presentationCombo->setObjectName(QStringLiteral("viewerPresentationMode"));
-    presentationCombo->addItem(QObject::tr("Shaded"),
+    presentationCombo_ = new QComboBox(toolbar_);
+    presentationCombo_->setObjectName(QStringLiteral("viewerPresentationMode"));
+    presentationCombo_->addItem(QObject::tr("Shaded"),
                                static_cast<int>(stepcompare::viewer::PresentationMode::Shaded));
-    presentationCombo->addItem(
+    presentationCombo_->addItem(
         QObject::tr("Shaded + Edges"),
         static_cast<int>(stepcompare::viewer::PresentationMode::ShadedWithEdges));
-    presentationCombo->addItem(
+    presentationCombo_->addItem(
         QObject::tr("Wireframe"),
         static_cast<int>(stepcompare::viewer::PresentationMode::Wireframe));
-    presentationCombo->addItem(
+    presentationCombo_->addItem(
         QObject::tr("Transparent/X-Ray"),
         static_cast<int>(stepcompare::viewer::PresentationMode::TransparentXRay));
-    presentationCombo->addItem(
+    presentationCombo_->addItem(
         QObject::tr("Section View"),
         static_cast<int>(stepcompare::viewer::PresentationMode::Section));
-    presentationCombo->setCurrentIndex(1);
-    toolbar_->addWidget(presentationCombo);
-    connect(presentationCombo,
+    presentationCombo_->setCurrentIndex(1);
+    toolbar_->addWidget(presentationCombo_);
+    connect(presentationCombo_,
             &QComboBox::currentIndexChanged,
             this,
-            [handler = std::move(presentationHandler), presentationCombo](int index) {
+            [handler = std::move(presentationHandler), this](int index) {
                 handler(static_cast<stepcompare::viewer::PresentationMode>(
-                    presentationCombo->itemData(index).toInt()));
+                    presentationCombo_->itemData(index).toInt()));
             });
     toolbar_->addSeparator();
 
@@ -90,11 +114,13 @@ ViewerActions::ViewerActions(QMainWindow& window,
         std::pair{QObject::tr("OVERLAY"), stepcompare::viewer::SceneLayer::Overlay},
         std::pair{QObject::tr("DIFFERENCE"), stepcompare::viewer::SceneLayer::Difference},
     };
+    std::size_t layerIndex = 0;
     for (const auto& [label, layer] : layerActions) {
         auto* action = toolbar_->addAction(label);
         action->setCheckable(true);
         action->setChecked(layer == stepcompare::viewer::SceneLayer::Overlay);
         layerGroup->addAction(action);
+        layerActions_[layerIndex++] = action;
         connect(action,
                 &QAction::triggered,
                 this,
@@ -119,23 +145,6 @@ ViewerActions::ViewerActions(QMainWindow& window,
     }
 
     toolbar_->addSeparator();
-    const std::array orientationActions{
-        std::pair{QObject::tr("Front"), stepcompare::viewer::CameraOrientation::Front},
-        std::pair{QObject::tr("Back"), stepcompare::viewer::CameraOrientation::Back},
-        std::pair{QObject::tr("Left"), stepcompare::viewer::CameraOrientation::Left},
-        std::pair{QObject::tr("Right"), stepcompare::viewer::CameraOrientation::Right},
-        std::pair{QObject::tr("Top"), stepcompare::viewer::CameraOrientation::Top},
-        std::pair{QObject::tr("Bottom"), stepcompare::viewer::CameraOrientation::Bottom},
-        std::pair{QObject::tr("Isometric"), stepcompare::viewer::CameraOrientation::Isometric},
-    };
-    for (const auto& [label, orientation] : orientationActions) {
-        auto* action = toolbar_->addAction(label);
-        connect(action, &QAction::triggered, this, [handler = orientationHandler, orientation] {
-            handler(orientation);
-        });
-    }
-
-    toolbar_->addSeparator();
     connect(toolbar_->addAction(QObject::tr("Fit All")),
             &QAction::triggered,
             this,
@@ -144,6 +153,28 @@ ViewerActions::ViewerActions(QMainWindow& window,
             &QAction::triggered,
             this,
             [handler = std::move(resetViewHandler)] { handler(); });
+}
+
+void ViewerActions::setPresentationMode(
+    const stepcompare::viewer::PresentationMode mode) {
+    const QSignalBlocker blocker(presentationCombo_);
+    const int index = presentationCombo_->findData(static_cast<int>(mode));
+    if (index >= 0) {
+        presentationCombo_->setCurrentIndex(index);
+    }
+}
+
+void ViewerActions::setLayer(const stepcompare::viewer::SceneLayer layer) {
+    const auto index = static_cast<std::size_t>(layer);
+    if (index < layerActions_.size() && layerActions_[index] != nullptr) {
+        const QSignalBlocker blocker(layerActions_[index]);
+        layerActions_[index]->setChecked(true);
+    }
+}
+
+void ViewerActions::setHeatmapEnabled(const bool enabled) {
+    const QSignalBlocker blocker(heatmapAction_);
+    heatmapAction_->setChecked(enabled);
 }
 
 }  // namespace stepcompare::gui

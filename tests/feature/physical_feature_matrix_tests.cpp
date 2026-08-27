@@ -3,6 +3,7 @@
 #include "stepcompare/deviation/occt_surface_deviation_engine.hpp"
 #include "stepcompare/feature/occt_feature_recognizer.hpp"
 #include "stepcompare/import/occt_step_importer.hpp"
+#include "adapters/occt/occt_geometry_payload.hpp"
 
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -27,14 +28,17 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -301,6 +305,102 @@ void physicalFeatureCancellation(const std::filesystem::path& root) {
               << "\n";
 }
 
+class PhysicalAssemblyImporter final
+    : public stepcompare::import::StepImportPort {
+public:
+    std::deque<stepcompare::import::StepImportResult> results;
+
+    stepcompare::import::StepImportResult importStep(
+        const stepcompare::import::StepImportRequest&) noexcept override {
+        if (results.empty()) {
+            return {};
+        }
+        auto result = std::move(results.front());
+        results.pop_front();
+        return result;
+    }
+};
+
+stepcompare::import::StepImportResult physicalAssembly(
+    const TopoDS_Shape& selectedShape) {
+    stepcompare::import::StepImportResult result;
+    result.model.lengthUnit.status =
+        stepcompare::import::UnitNormalizationStatus::NormalizedToMillimetres;
+    result.model.rootNodeIds = {"assembly"};
+    result.model.prototypes.push_back({
+        .id = "unselected-prototype",
+        .nameUtf8 = "Unselected",
+        .geometry = std::make_shared<
+            stepcompare::adapters::occt::OcctGeometryPayload>(
+            featureShape(Kind::BlindPocket, 0.0, 0.0)),
+    });
+    result.model.prototypes.push_back({
+        .id = "selected-prototype",
+        .nameUtf8 = "Selected",
+        .geometry = std::make_shared<
+            stepcompare::adapters::occt::OcctGeometryPayload>(selectedShape),
+    });
+    stepcompare::import::AssemblyNode root;
+    root.id = "assembly";
+    root.nameUtf8 = "Assembly";
+    root.isAssembly = true;
+    root.childIds = {"unselected-occurrence", "selected-occurrence"};
+    result.model.nodes.push_back(std::move(root));
+    for (const auto& [nodeId, prototypeId] : {
+             std::pair{"unselected-occurrence", "unselected-prototype"},
+             std::pair{"selected-occurrence", "selected-prototype"}}) {
+        stepcompare::import::AssemblyNode node;
+        node.id = nodeId;
+        node.parentId = "assembly";
+        node.prototypeId = prototypeId;
+        node.nameUtf8 = nodeId;
+        node.isInstance = true;
+        result.model.nodes.push_back(std::move(node));
+    }
+    return result;
+}
+
+void physicalSelectedPairOnlyComparison() {
+    PhysicalAssemblyImporter importer;
+    importer.results.push_back(physicalAssembly(
+        featureShape(Kind::ThroughHole, 0.0, 0.0)));
+    importer.results.push_back(physicalAssembly(
+        featureShape(Kind::ThroughHole, 0.0, 1.5)));
+    stepcompare::deep::OcctDeepGeometryEngine deep;
+    stepcompare::deviation::OcctSurfaceDeviationEngine surface;
+    stepcompare::feature::OcctFeatureRecognizer recognizer;
+    stepcompare::application::ComparisonCoordinator coordinator(
+        importer, deep, &surface, &recognizer);
+    stepcompare::application::FeaturePairComparisonRequest request;
+    request.componentIdA = "selected-occurrence";
+    request.componentIdB = "selected-occurrence";
+    request.tolerances.positionMm = 0.5;
+    request.tolerances.surfaceMm = 0.05;
+    request.tolerances.angularDegrees = 0.1;
+    const auto result = coordinator.compareFeaturePair(request);
+    const auto changed = std::find_if(
+        result.features.begin(), result.features.end(), [](const auto& row) {
+            return row.type == "THROUGH_HOLE" && row.result == "FAIL" &&
+                   row.reason == "FEATURE_SIZE_CHANGED";
+        });
+    expect(result.status ==
+                   stepcompare::application::ComparisonRunStatus::Completed &&
+               changed != result.features.end(),
+           "physical selected occurrence pair must expose its changed hole");
+    expect(std::ranges::all_of(result.features, [](const auto& row) {
+               return row.ownerComponentIdA == "selected-occurrence" &&
+                      row.ownerComponentIdB == "selected-occurrence";
+           }),
+           "physical pair comparison must not leak features from unselected assembly occurrences");
+    if (changed != result.features.end()) {
+        expect(!changed->faceIndicesA.empty() && !changed->faceIndicesB.empty(),
+               "changed feature highlight must carry physical B-Rep face evidence for both sides");
+    }
+    std::cout << "PHYSICAL_SELECTED_PAIR_FEATURE="
+              << (changed != result.features.end() ? "PASS" : "FAIL")
+              << " ROWS=" << result.features.size() << '\n';
+}
+
 }  // namespace
 
 int main() {
@@ -321,6 +421,7 @@ int main() {
                 negativeShape(spec.kind));
     }
     physicalFeatureCancellation(root);
+    physicalSelectedPairOnlyComparison();
     if (failures != 0) {
         std::cerr << failures << " physical feature matrix assertion(s) failed\n";
         return EXIT_FAILURE;

@@ -455,8 +455,38 @@ void appendFeature(std::string& output, const FeatureRow& feature) {
     return normalized;
 }
 
+[[nodiscard]] bool isStrictCsvNumber(std::string_view value) {
+    if (value.empty()) {
+        return false;
+    }
+    double parsed = 0.0;
+    const auto result = std::from_chars(value.data(), value.data() + value.size(),
+                                        parsed, std::chars_format::general);
+    return result.ec == std::errc{} && result.ptr == value.data() + value.size() &&
+           std::isfinite(parsed);
+}
+
+[[nodiscard]] bool needsSpreadsheetNeutralization(std::string_view value) {
+    if (value.empty() || isStrictCsvNumber(value)) {
+        return false;
+    }
+    std::size_t index = 0;
+    while (index < value.size() && value[index] == ' ') {
+        ++index;
+    }
+    if (index == value.size()) {
+        return false;
+    }
+    const auto first = static_cast<unsigned char>(value[index]);
+    return first == '=' || first == '+' || first == '-' || first == '@' ||
+           first == '\t' || first == '\r' || first == '\n';
+}
+
 void appendCsvField(std::string& output, std::string_view rawValue) {
-    const auto value = normalizeCsvNewlines(rawValue);
+    auto value = normalizeCsvNewlines(rawValue);
+    if (needsSpreadsheetNeutralization(value)) {
+        value.insert(value.begin(), '\'');
+    }
     const bool quote = value.find_first_of(",\"\r\n") != std::string::npos;
     if (!quote) {
         output += value;

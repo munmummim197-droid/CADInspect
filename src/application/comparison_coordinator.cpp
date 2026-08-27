@@ -435,12 +435,13 @@ std::optional<deviation::SurfaceDeviationResult> runDeviation(
 
 void notifyProgress(const ComparisonRequest& request,
                     ComparisonPhase phase,
-                    std::size_t completedStages) noexcept {
+                    std::size_t completedStages,
+                    std::size_t totalStages = 5U) noexcept {
     if (!request.progress) {
         return;
     }
     try {
-        request.progress({phase, completedStages, 5U});
+        request.progress({phase, completedStages, totalStages});
     } catch (...) {
         // Progress observers cannot alter comparison evidence or verdicts.
     }
@@ -503,6 +504,8 @@ void runSinglePart(const ComparisonRequest& request,
                    deviation::SurfaceDeviationPort* surfaceDeviation,
                    domain::EvidenceSummary& evidence,
                    reporting::Report& report,
+                   std::unordered_map<std::string, deep::DeepGeometryResult>&
+                       deepResults,
                    bool& deepFailed,
                    bool& deviationFailed,
                    bool& surfaceCancelled) {
@@ -527,6 +530,8 @@ void runSinglePart(const ComparisonRequest& request,
             {request.tolerances.booleanFuzzyMm,
              request.tolerances.relativeProperty},
         });
+        deepResults.insert_or_assign(
+            prototypeA.id + '\x1f' + prototypeB.id, *deepResult);
         switch (deepResult->status) {
         case deep::DeepGeometryStatus::SameGeometry:
             evidence.geometry = domain::GeometryStatus::SameProven;
@@ -679,13 +684,26 @@ void runAssembly(const ComparisonRequest& request,
                  deviation::SurfaceDeviationPort* surfaceDeviation,
                  domain::EvidenceSummary& evidence,
                  reporting::Report& report,
+                 std::unordered_map<std::string, deep::DeepGeometryResult>&
+                     deepResults,
                  bool& deepFailed,
                  bool& deviationFailed,
                  bool& surfaceCancelled) {
     bool alignmentAmbiguous = false;
-    std::unordered_map<std::string, deep::DeepGeometryResult> deepResults;
+    std::size_t completedDeepChecks = 0U;
+    const std::size_t expectedDeepChecks =
+        std::max({indexA.prototypes.size(),
+                  indexB.prototypes.size(),
+                  std::size_t{1}});
     assembly::MatchingOptions options;
     options.tolerances = request.tolerances;
+    // XCAF label paths are trusted here only as occurrence-correspondence
+    // evidence. matchComponents also requires compatible occurrence names and
+    // still performs fast/deep B-Rep verification, so identity can never turn
+    // changed or inconclusive geometry into SAME. This avoids the quadratic
+    // cross-prototype search and prevents a changed part at the same assembly
+    // path from being emitted as a misleading MISSING + NEW pair.
+    options.stableNodeIdsTrusted = true;
     if (request.deep) {
         options.deepVerifier =
             [&](const assembly::IndexedPrototype& prototypeA,
@@ -698,6 +716,15 @@ void runAssembly(const ComparisonRequest& request,
                 });
                 deepResults.insert_or_assign(
                     prototypeA.id + '\x1f' + prototypeB.id, verified);
+                ++completedDeepChecks;
+                notifyProgress(
+                    request,
+                    ComparisonPhase::Matching,
+                    std::size_t{60} + std::min(
+                              std::size_t{19},
+                              (completedDeepChecks * 20U) /
+                                  expectedDeepChecks),
+                    100U);
                 switch (verified.status) {
                 case deep::DeepGeometryStatus::SameGeometry:
                     return assembly::DeepVerification{
@@ -730,6 +757,14 @@ void runAssembly(const ComparisonRequest& request,
     std::uint64_t deviationEvaluations{};
     double maximumDeviation{};
     double maximumPercentile95{};
+    // Surface deviation belongs to an aligned prototype pair. Repeated
+    // assembly occurrences must reuse that evidence instead of remeshing and
+    // resampling identical prototypes thousands of times. The cached result is
+    // still accumulated once per occurrence below, preserving report
+    // aggregation semantics while removing duplicate OCCT work.
+    std::unordered_map<
+        std::string,
+        std::optional<deviation::SurfaceDeviationResult>> deviationResults;
     for (const auto& row : matching.rows) {
         evidence.componentMissing |=
             row.resultStatus == ComponentResultStatus::Missing;
@@ -755,12 +790,19 @@ void runAssembly(const ComparisonRequest& request,
                 foundDeep->second.alignmentProven) {
                 transformBToA = foundDeep->second.transformBToA;
             }
-            const auto deviationResult = runDeviation(
-                request,
-                surfaceDeviation,
-                prototypeA->geometry,
-                prototypeB->geometry,
-                transformBToA);
+            const std::string deviationKey =
+                prototypeA->id + '\x1f' + prototypeB->id;
+            auto [cachedDeviation, insertedDeviation] =
+                deviationResults.try_emplace(deviationKey);
+            if (insertedDeviation) {
+                cachedDeviation->second = runDeviation(
+                    request,
+                    surfaceDeviation,
+                    prototypeA->geometry,
+                    prototypeB->geometry,
+                    transformBToA);
+            }
+            const auto& deviationResult = cachedDeviation->second;
             if (!deviationResult) {
                 deviationFailed = true;
                 componentReport.geometryStatus = "INCONCLUSIVE";
@@ -971,6 +1013,7 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
     bool deepFailed = false;
     bool deviationFailed = false;
     bool surfaceCancelled = false;
+    std::unordered_map<std::string, deep::DeepGeometryResult> deepResults;
     notifyProgress(request, ComparisonPhase::Matching, 3U);
     result.report.execution.terminalPhase = "MATCHING_AND_DEEP_EVIDENCE";
     const auto matchingStarted = Clock::now();
@@ -998,6 +1041,7 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
                       surfaceDeviation,
                       evidence,
                       result.report,
+                      deepResults,
                       deepFailed,
                       deviationFailed,
                       surfaceCancelled);
@@ -1009,6 +1053,7 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
                     surfaceDeviation,
                     evidence,
                     result.report,
+                    deepResults,
                     deepFailed,
                     deviationFailed,
                     surfaceCancelled);
@@ -1018,17 +1063,22 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
         return cancelledResult(request, std::move(result.report));
     }
 
-    if (featureRecognition != nullptr && request.deep) {
+    const bool featureEvidenceEnabled =
+        request.featureEvidenceScope == FeatureEvidenceScope::AllMatchedComponents ||
+        singlePart;
+    if (featureRecognition != nullptr && request.deep && featureEvidenceEnabled) {
         if (request.cancellation.stop_requested()) {
             return cancelledResult(request, std::move(result.report));
         }
         const auto featureStarted = Clock::now();
+        notifyProgress(request, ComparisonPhase::FeatureEvidence, 4U);
         const auto featureStatus = appendFeatureEvidence(*indexedA.index,
                                                          *indexedB.index,
                                                          request.tolerances,
                                                          deepGeometry,
                                                          *featureRecognition,
                                                          exactIdentityProven,
+                                                         deepResults,
                                                          request.cancellation,
                                                          result.report);
         appendTiming(result.report, "feature_evidence", featureStarted);
@@ -1089,6 +1139,10 @@ std::optional<std::string> comparisonCacheKey(
     }
     std::string configuration = request.importConfiguration;
     configuration += request.deep ? "|deep=1" : "|deep=0";
+    configuration += request.featureEvidenceScope ==
+                             FeatureEvidenceScope::AllMatchedComponents
+                         ? "|featureScope=all"
+                         : "|featureScope=single-part";
     configuration += "|position=";
     appendKeyDouble(configuration, request.tolerances.positionMm);
     configuration += "|surface=";
@@ -1243,6 +1297,125 @@ ComparisonResult ComparisonCoordinator::compare(
         result.diagnostics.push_back({
             ComparisonDiagnosticCode::InternalFailure,
             "Unknown application coordinator failure"});
+        return result;
+    }
+}
+
+FeaturePairComparisonResult ComparisonCoordinator::compareFeaturePair(
+    const FeaturePairComparisonRequest& request) noexcept {
+    FeaturePairComparisonResult result;
+    result.componentIdA = request.componentIdA;
+    result.componentIdB = request.componentIdB;
+    const auto cancelled = [&result] {
+        result.status = ComparisonRunStatus::Cancelled;
+        result.diagnostics.push_back(
+            {ComparisonDiagnosticCode::Cancelled,
+             "Feature pair comparison was cancelled"});
+        return result;
+    };
+    try {
+        if (request.cancellation.stop_requested()) {
+            return cancelled();
+        }
+        if (featureRecognition_ == nullptr || request.componentIdA.empty() ||
+            request.componentIdB.empty()) {
+            result.status = ComparisonRunStatus::ProcessingError;
+            result.diagnostics.push_back(
+                {ComparisonDiagnosticCode::InternalFailure,
+                 "Feature pair comparison requires a recognizer and two occurrence IDs"});
+            return result;
+        }
+
+        const auto importedA = importer_.importStep({request.inputAUtf8});
+        if (request.cancellation.stop_requested()) {
+            return cancelled();
+        }
+        const auto importedB = importer_.importStep({request.inputBUtf8});
+        if (request.cancellation.stop_requested()) {
+            return cancelled();
+        }
+        if (!importedA.succeeded() || !importedB.succeeded()) {
+            result.status = ComparisonRunStatus::InputError;
+            if (!importedA.succeeded()) {
+                result.diagnostics.push_back(
+                    {ComparisonDiagnosticCode::ImportAFailed,
+                     "STEP import A failed during feature pair comparison"});
+            }
+            if (!importedB.succeeded()) {
+                result.diagnostics.push_back(
+                    {ComparisonDiagnosticCode::ImportBFailed,
+                     "STEP import B failed during feature pair comparison"});
+            }
+            return result;
+        }
+
+        const auto indexedA = assembly::buildAssemblyIndex(importedA.model);
+        const auto indexedB = assembly::buildAssemblyIndex(importedB.model);
+        if (request.cancellation.stop_requested()) {
+            return cancelled();
+        }
+        if (!indexedA || !indexedB) {
+            result.status = ComparisonRunStatus::ProcessingError;
+            if (!indexedA) {
+                result.diagnostics.push_back(
+                    {ComparisonDiagnosticCode::AssemblyIndexAFailed,
+                     "Assembly index A failed during feature pair comparison"});
+            }
+            if (!indexedB) {
+                result.diagnostics.push_back(
+                    {ComparisonDiagnosticCode::AssemblyIndexBFailed,
+                     "Assembly index B failed during feature pair comparison"});
+            }
+            return result;
+        }
+        const auto* occurrenceA =
+            indexedA.index->findOccurrence(request.componentIdA);
+        const auto* occurrenceB =
+            indexedB.index->findOccurrence(request.componentIdB);
+        if (occurrenceA == nullptr || occurrenceB == nullptr) {
+            result.status = ComparisonRunStatus::ProcessingError;
+            result.diagnostics.push_back(
+                {ComparisonDiagnosticCode::InternalFailure,
+                 "Selected feature pair occurrence was not found after import"});
+            return result;
+        }
+
+        reporting::Report pairReport;
+        pairReport.components.push_back({
+            .idA = request.componentIdA,
+            .idB = request.componentIdB,
+            .nameA = occurrenceA->nameUtf8,
+            .nameB = occurrenceB->nameUtf8,
+        });
+        const std::unordered_map<std::string, deep::DeepGeometryResult>
+            noPrecomputedAlignments;
+        const auto evidenceStatus = appendFeatureEvidence(
+            *indexedA.index,
+            *indexedB.index,
+            request.tolerances,
+            deepGeometry_,
+            *featureRecognition_,
+            false,
+            noPrecomputedAlignments,
+            request.cancellation,
+            pairReport);
+        if (evidenceStatus == FeatureEvidenceStatus::Cancelled ||
+            request.cancellation.stop_requested()) {
+            return cancelled();
+        }
+        result.features = std::move(pairReport.features);
+        result.status = ComparisonRunStatus::Completed;
+        return result;
+    } catch (const std::exception& failure) {
+        result.status = ComparisonRunStatus::ProcessingError;
+        result.diagnostics.push_back(
+            {ComparisonDiagnosticCode::InternalFailure, failure.what()});
+        return result;
+    } catch (...) {
+        result.status = ComparisonRunStatus::ProcessingError;
+        result.diagnostics.push_back(
+            {ComparisonDiagnosticCode::InternalFailure,
+             "Unknown feature pair comparison failure"});
         return result;
     }
 }

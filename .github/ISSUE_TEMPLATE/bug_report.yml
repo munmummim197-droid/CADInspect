@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible CADInspect defect using non-confidential data
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not attach customer CAD, credentials, private reports, or security exploits. Follow SECURITY.md for vulnerabilities."
+  - type: input
+    id: version
+    attributes:
+      label: CADInspect version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include whether the input is a Part or Assembly and use a synthetic fixture when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and diagnostics
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows version, GPU and build type; omit usernames, local paths and other private data.

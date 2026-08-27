@@ -12,6 +12,7 @@
 
 #include <stepcompare/reporting/report.hpp>
 #include <stepcompare/viewer/selection_presenter.hpp>
+#include <stepcompare/viewer/viewer_state.hpp>
 
 namespace stepcompare::gui {
 
@@ -114,6 +115,14 @@ struct ComponentViewRow final {
     std::string stableIdB{};
     ComponentUiStatus uiStatus{ComponentUiStatus::Ambiguous};
     std::uint32_t filterMask{};
+    std::string partKey{};
+};
+
+struct PreviewPartIdentity final {
+    std::string stableId{};
+    std::string prototypeId{};
+    QString partName{};
+    stepcompare::viewer::ModelSide side{stepcompare::viewer::ModelSide::A};
 };
 
 class ComponentComparisonModel final : public QAbstractTableModel {
@@ -138,6 +147,7 @@ public:
     explicit ComponentComparisonModel(QObject* parent = nullptr);
 
     void setReport(const stepcompare::reporting::Report& report);
+    void setRows(std::vector<ComponentViewRow> rows);
     void clearReport();
 
     [[nodiscard]] int rowCount(
@@ -158,6 +168,71 @@ public:
 
 private:
     std::vector<ComponentViewRow> rows_;
+};
+
+struct PartViewRow final {
+    QString part{};
+    QString quantityA{};
+    QString quantityB{};
+    QString quantityDifference{};
+    QString result{};
+    QString notes{};
+    QString maximumDeviation{};
+    QString representativeDeltaX{};
+    QString representativeDeltaY{};
+    QString representativeDeltaZ{};
+    std::string partKey{};
+    ComponentUiStatus uiStatus{ComponentUiStatus::Ambiguous};
+    std::uint32_t filterMask{};
+    std::vector<ComponentViewRow> occurrences{};
+};
+
+class PartComparisonModel final : public QAbstractTableModel {
+public:
+    enum Column {
+        Part = 0,
+        QuantityA,
+        QuantityB,
+        QuantityDifference,
+        Result,
+        Notes,
+        MaximumDeviation,
+        RepresentativeDeltaX,
+        RepresentativeDeltaY,
+        RepresentativeDeltaZ,
+        ColumnCount,
+    };
+    enum Role {
+        FilterMaskRole = Qt::UserRole + 1,
+        PartKeyRole,
+    };
+
+    explicit PartComparisonModel(QObject* parent = nullptr);
+
+    void setReport(const stepcompare::reporting::Report& report,
+                   const std::vector<PreviewPartIdentity>& identities);
+    void clearReport();
+
+    [[nodiscard]] int rowCount(
+        const QModelIndex& parent = QModelIndex()) const override;
+    [[nodiscard]] int columnCount(
+        const QModelIndex& parent = QModelIndex()) const override;
+    [[nodiscard]] QVariant data(
+        const QModelIndex& index,
+        int role = Qt::DisplayRole) const override;
+    [[nodiscard]] QVariant headerData(
+        int section,
+        Qt::Orientation orientation,
+        int role = Qt::DisplayRole) const override;
+    [[nodiscard]] Qt::ItemFlags flags(const QModelIndex& index) const override;
+
+    [[nodiscard]] QModelIndex indexForStableId(std::string_view stableId) const;
+    [[nodiscard]] const std::vector<ComponentViewRow>& occurrences(
+        const QModelIndex& index) const;
+    [[nodiscard]] std::string preferredStableId(const QModelIndex& index) const;
+
+private:
+    std::vector<PartViewRow> rows_;
 };
 
 class ComponentFilterProxyModel final : public QSortFilterProxyModel {
@@ -209,6 +284,8 @@ public:
     explicit FeatureComparisonModel(QObject* parent = nullptr);
 
     void setReport(const stepcompare::reporting::Report& report);
+    void setFeatures(
+        const std::vector<stepcompare::reporting::FeatureRow>& features);
     void clearReport();
 
     [[nodiscard]] int rowCount(

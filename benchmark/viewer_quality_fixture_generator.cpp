@@ -21,6 +21,7 @@
 #include <XCAFApp_Application.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -106,6 +107,18 @@ TopoDS_Shape located(const TopoDS_Shape& shape,
     return shape.Located(TopLoc_Location(transform));
 }
 
+TopoDS_Shape locatedRotatedZ(const TopoDS_Shape& shape,
+                             const double x,
+                             const double y,
+                             const double z,
+                             const double angleRadians) {
+    gp_Trsf transform;
+    transform.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)),
+                          angleRadians);
+    transform.SetTranslationPart(gp_Vec(x, y, z));
+    return shape.Located(TopLoc_Location(transform));
+}
+
 bool writeXcaf(const std::filesystem::path& path,
                const std::string& assemblyName,
                const std::vector<NamedShape>& shapes) {
@@ -155,6 +168,28 @@ bool writePair(const std::filesystem::path& directory,
     return !error;
 }
 
+bool writeChangedAssemblyPair(const std::filesystem::path& directory,
+                              const TopoDS_Shape& featured,
+                              const TopoDS_Shape& finished) {
+    const auto geometryChanged =
+        BRepAlgoAPI_Cut(finished, cylinder(20, 20, -1, 4, 32)).Shape();
+    const std::vector<NamedShape> aShapes = {
+        {"Repeated feature plate", located(featured, 0, 0, 0)},
+        {"Geometry-change candidate", located(finished, 145, 0, 0)},
+        {"Repeated feature plate", located(featured, 0, 115, 15)},
+        {"Stable reference", located(finished, 145, 115, 15)}};
+    const std::vector<NamedShape> bShapes = {
+        {"Repeated feature plate", located(featured, 8, 0, 0)},
+        {"Geometry-change candidate", located(geometryChanged, 145, 0, 0)},
+        {"Repeated feature plate",
+         locatedRotatedZ(featured, 0, 115, 15, 0.20943951023931953)},
+        {"Stable reference", located(finished, 145, 115, 15)}};
+    return writeXcaf(directory / "occurrence-change-assembly-A.step",
+                     "Occurrence identity physical assembly", aShapes) &&
+           writeXcaf(directory / "occurrence-change-assembly-B.step",
+                     "Occurrence identity physical assembly", bShapes);
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t* argv[]) {
@@ -180,11 +215,12 @@ int wmain(int argc, wchar_t* argv[]) {
                    {{"Feature plate 1", located(featured, 0, 0, 0)},
                     {"Fillet chamfer 1", located(finished, 145, 0, 0)},
                     {"Feature plate 2", located(featured, 0, 115, 15)},
-                    {"Fillet chamfer 2", located(finished, 145, 115, 15)}})) {
+                    {"Fillet chamfer 2", located(finished, 145, 115, 15)}}) ||
+        !writeChangedAssemblyPair(output, featured, finished)) {
         std::cerr << "Cannot write physical viewer quality fixtures.\n";
         return 4;
     }
-    std::cout << "Generated physical hole/slot/pocket, fillet/chamfer, and "
-                 "complex assembly STEP fixture pairs.\n";
+    std::cout << "Generated physical hole/slot/pocket, fillet/chamfer, "
+                 "complex assembly, and occurrence-change STEP fixture pairs.\n";
     return 0;
 }

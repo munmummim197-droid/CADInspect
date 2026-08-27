@@ -1,5 +1,6 @@
 #include <stepcompare/viewer/viewer_state.hpp>
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -35,6 +36,10 @@ PresentationMode ViewerStateModel::presentationMode() const noexcept {
     return presentationMode_;
 }
 
+const SectionSettings& ViewerStateModel::sectionSettings() const noexcept {
+    return sectionSettings_;
+}
+
 const std::optional<StableSelectionId>& ViewerStateModel::selection() const noexcept {
     return selection_;
 }
@@ -53,6 +58,16 @@ void ViewerStateModel::setOrientation(const CameraOrientation orientation) noexc
 
 void ViewerStateModel::setPresentationMode(const PresentationMode mode) noexcept {
     presentationMode_ = mode;
+}
+
+void ViewerStateModel::setSectionSettings(SectionSettings settings) noexcept {
+    settings.normalizedOffset =
+        std::clamp(settings.normalizedOffset, -1.0, 1.0);
+    sectionSettings_ = settings;
+}
+
+void ViewerStateModel::resetSectionSettings() noexcept {
+    sectionSettings_ = {};
 }
 
 void ViewerStateModel::select(StableSelectionId stableId) {
@@ -117,6 +132,38 @@ std::string_view toString(const PresentationMode mode) noexcept {
             return "SECTION VIEW";
     }
     return "SHADED + EDGES";
+}
+
+std::string_view toString(const SectionDirection direction) noexcept {
+    switch (direction) {
+        case SectionDirection::XY:
+            return "XY";
+        case SectionDirection::YZ:
+            return "YZ";
+        case SectionDirection::ZX:
+            return "ZX";
+        case SectionDirection::Front:
+            return "FRONT";
+        case SectionDirection::Top:
+            return "TOP";
+        case SectionDirection::Right:
+            return "RIGHT";
+        case SectionDirection::Camera:
+            return "CAMERA";
+    }
+    return "CAMERA";
+}
+
+std::string_view toString(const SectionTarget target) noexcept {
+    switch (target) {
+        case SectionTarget::A:
+            return "A";
+        case SectionTarget::B:
+            return "B";
+        case SectionTarget::Both:
+            return "A+B";
+    }
+    return "A+B";
 }
 
 }  // namespace stepcompare::viewer

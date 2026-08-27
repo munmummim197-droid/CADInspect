@@ -18,22 +18,30 @@ class ComparisonRunner final : public QObject {
 public:
     using ResultHandler =
         std::function<void(stepcompare::application::ComparisonResult)>;
+    using FeaturePairResultHandler = std::function<void(
+        stepcompare::application::FeaturePairComparisonResult)>;
     using StatusHandler = std::function<void(int, std::string)>;
 
     ComparisonRunner(StatusHandler statusHandler,
                      ResultHandler resultHandler,
+                     FeaturePairResultHandler featurePairResultHandler,
                      QObject* parent = nullptr);
     ~ComparisonRunner() override;
 
     [[nodiscard]] bool start(
         stepcompare::application::ComparisonRequest request);
+    [[nodiscard]] bool startFeaturePair(
+        stepcompare::application::FeaturePairComparisonRequest request);
     [[nodiscard]] bool cancel();
     [[nodiscard]] bool busy() const noexcept;
 
 private:
     QFutureWatcher<stepcompare::application::ComparisonResult> watcher_;
+    QFutureWatcher<stepcompare::application::FeaturePairComparisonResult>
+        featurePairWatcher_;
     StatusHandler statusHandler_;
     ResultHandler resultHandler_;
+    FeaturePairResultHandler featurePairResultHandler_;
     std::stop_source stopSource_;
     stepcompare::import::OcctStepImporter importer_;
     stepcompare::deep::OcctDeepGeometryEngine deepGeometry_;

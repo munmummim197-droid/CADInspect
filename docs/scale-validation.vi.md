@@ -36,8 +36,8 @@ Artifact máy đọc được:
   `3a76667e8eb3831398cd83a21797c074d0425e736917c76a24561f6905816773`.
 - Evidence JSON SHA-256:
   `2007104f67619b94b8274781af9317d0372f67ceae40e1a5c4658eb1fa23ae11`.
-- Máy đo: Windows `10.0.26200`, CPU identifier Intel64 Family 6 Model 183,
-  32 logical processors.
+- Máy đo tham chiếu: Windows x64, CPU 32 logical processors. Fingerprint chi tiết
+  của máy phát triển không thuộc artifact OSS public.
 
 | Case | Occurrence/file | STEP A | Wall time 3 lượt (ms) | Median (ms) | CPU time 3 lượt (ms) | Peak WS max | Peak private max | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|

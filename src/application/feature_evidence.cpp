@@ -15,6 +15,21 @@ namespace {
 using feature::RecognizedFeature;
 constexpr double kGeometryProvenMinimumConfidence = 0.80;
 
+bool isIdentityAlignment(const deep::DeepGeometryResult& result) noexcept {
+    if (!result.alignmentProven) {
+        return false;
+    }
+    constexpr double tolerance = 1.0e-10;
+    const import::RigidTransformMm identity;
+    for (std::size_t index = 0; index < identity.matrix.size(); ++index) {
+        if (std::abs(result.transformBToA.matrix[index] -
+                     identity.matrix[index]) > tolerance) {
+            return false;
+        }
+    }
+    return true;
+}
+
 reporting::Vector3 reportVector(const feature::Vector3& value) noexcept {
     return {value.x, value.y, value.z};
 }
@@ -266,6 +281,8 @@ FeatureEvidenceStatus appendFeatureEvidence(
     deep::DeepGeometryPort& deepGeometry,
     feature::FeatureRecognitionPort& recognizer,
     const bool exactIdentityProven,
+    const std::unordered_map<std::string, deep::DeepGeometryResult>&
+        precomputedAlignments,
     const std::stop_token cancellation,
     reporting::Report& report) noexcept {
     try {
@@ -323,21 +340,34 @@ FeatureEvidenceStatus appendFeatureEvidence(
             bool alignmentProven = exactIdentityProven;
             const std::string pairKey = prototypeA->id + '\x1f' + prototypeB->id;
             if (!exactIdentityProven) {
-                auto [alignment, inserted] = alignments.try_emplace(pairKey);
-                if (inserted) {
-                    alignment->second = deepGeometry.compareAligned({
-                        prototypeA->geometry,
-                        prototypeB->geometry,
-                        {tolerances.booleanFuzzyMm,
-                         tolerances.relativeProperty},
-                    });
+                const deep::DeepGeometryResult* alignmentResult = nullptr;
+                if (const auto precomputed =
+                        precomputedAlignments.find(pairKey);
+                    precomputed != precomputedAlignments.end() &&
+                    isIdentityAlignment(precomputed->second)) {
+                    // Identity is unique and cannot remap symmetric features.
+                    // Non-identity whole-part alignments are recomputed in the
+                    // feature stage so an arbitrary symmetry hypothesis is not
+                    // reused as feature-placement evidence.
+                    alignmentResult = &precomputed->second;
+                } else {
+                    auto [alignment, inserted] = alignments.try_emplace(pairKey);
+                    if (inserted) {
+                        alignment->second = deepGeometry.compareAligned({
+                            prototypeA->geometry,
+                            prototypeB->geometry,
+                            {tolerances.booleanFuzzyMm,
+                             tolerances.relativeProperty},
+                        });
+                    }
+                    alignmentResult = &alignment->second;
                 }
                 if (cancellation.stop_requested()) {
                     return FeatureEvidenceStatus::Cancelled;
                 }
-                alignmentProven = alignment->second.alignmentProven;
+                alignmentProven = alignmentResult->alignmentProven;
                 if (alignmentProven) {
-                    alignmentBToA = alignment->second.transformBToA;
+                    alignmentBToA = alignmentResult->transformBToA;
                 }
             }
 

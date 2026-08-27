@@ -7,6 +7,8 @@
 #include <stepcompare/domain/types.hpp>
 
 #include <stop_token>
+#include <string>
+#include <unordered_map>
 
 namespace stepcompare::application {
 
@@ -22,6 +24,8 @@ enum class FeatureEvidenceStatus {
     deep::DeepGeometryPort& deepGeometry,
     feature::FeatureRecognitionPort& recognizer,
     bool exactIdentityProven,
+    const std::unordered_map<std::string, deep::DeepGeometryResult>&
+        precomputedAlignments,
     std::stop_token cancellation,
     reporting::Report& report) noexcept;
 

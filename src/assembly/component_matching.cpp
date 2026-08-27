@@ -227,8 +227,19 @@ AssemblyMatchResult matchComponents(const AssemblyIndex& a,
                     continue;
                 }
                 const auto& occurrenceB = b.occurrences[indexB];
+                // A node path is a correspondence key, not proof that the
+                // geometry is the same.  Guard it with the occurrence name
+                // when both exporters supplied one so an unrelated component
+                // that reused an exporter-local label cannot be paired by
+                // structural position alone.  The selected pair still goes
+                // through invariant/deep geometry verification below.
+                const bool namesCompatible =
+                    occurrenceA.nameUtf8.empty() ||
+                    occurrenceB.nameUtf8.empty() ||
+                    occurrenceA.nameUtf8 == occurrenceB.nameUtf8;
                 const bool equal = byNodeId
-                                       ? occurrenceA.nodeId == occurrenceB.nodeId
+                                       ? occurrenceA.nodeId == occurrenceB.nodeId &&
+                                             namesCompatible
                                        : (!occurrenceA.nameUtf8.empty() &&
                                           occurrenceA.nameUtf8 ==
                                               occurrenceB.nameUtf8);

@@ -21,6 +21,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -131,6 +132,36 @@ Matrix3 rotationBetweenFrames(
     return rotation;
 }
 
+Matrix3 snapNearCardinalRotation(const Matrix3& rotation) noexcept {
+    constexpr double kCardinalNoiseTolerance = 1.0e-4;
+    Matrix3 snapped{};
+    std::array<bool, 3> usedColumns{};
+    for (std::size_t row = 0; row < 3U; ++row) {
+        std::size_t dominantColumn = 0U;
+        for (std::size_t column = 1U; column < 3U; ++column) {
+            if (std::abs(rotation[row][column]) >
+                std::abs(rotation[row][dominantColumn])) {
+                dominantColumn = column;
+            }
+        }
+        if (usedColumns[dominantColumn] ||
+            std::abs(std::abs(rotation[row][dominantColumn]) - 1.0) >
+                kCardinalNoiseTolerance) {
+            return rotation;
+        }
+        for (std::size_t column = 0; column < 3U; ++column) {
+            if (column != dominantColumn &&
+                std::abs(rotation[row][column]) > kCardinalNoiseTolerance) {
+                return rotation;
+            }
+        }
+        usedColumns[dominantColumn] = true;
+        snapped[row][dominantColumn] =
+            std::copysign(1.0, rotation[row][dominantColumn]);
+    }
+    return determinant(snapped) > 0.0 ? snapped : rotation;
+}
+
 gp_Trsf rigidTransform(const Matrix3& rotation,
                        const gp_Pnt& centerB,
                        const gp_Pnt& centerA) {
@@ -166,6 +197,8 @@ gp_Trsf centerTranslation(const gp_Pnt& centerB, const gp_Pnt& centerA) {
     return transform;
 }
 
+bool sameTransform(const gp_Trsf& lhs, const gp_Trsf& rhs) noexcept;
+
 double shapeVolume(const TopoDS_Shape& shape) {
     if (shape.IsNull()) {
         return 0.0;
@@ -186,7 +219,10 @@ double commonVolume(const TopoDS_Shape& shapeA,
     common.SetArguments(arguments);
     common.SetTools(tools);
     common.SetFuzzyValue(fuzzyMm);
-    common.SetRunParallel(false);
+    // This is OCCT's internal parallel BOP implementation inside one
+    // serialized comparison job; no independent OCCT operation is launched
+    // concurrently by StepCompare.
+    common.SetRunParallel(true);
     common.Build();
     if (common.HasErrors()) {
         throw std::runtime_error("OCCT Boolean Common reported an error");
@@ -210,16 +246,36 @@ std::vector<gp_Trsf> alignmentCandidates(const MassFrame& frameA,
                 (mask & 2) != 0 ? -1.0 : 1.0,
                 (mask & 4) != 0 ? -1.0 : 1.0,
             };
-            const Matrix3 rotation =
-                rotationBetweenFrames(frameA, frameB, permutation, signs);
+            const Matrix3 rotation = snapNearCardinalRotation(
+                rotationBetweenFrames(frameA, frameB, permutation, signs));
             if (determinant(rotation) <= 0.0) {
                 continue;
             }
-            candidates.push_back(
-                rigidTransform(rotation, frameB.center, frameA.center));
+            const gp_Trsf candidate =
+                rigidTransform(rotation, frameB.center, frameA.center);
+            if (std::none_of(candidates.begin(),
+                             candidates.end(),
+                             [&](const gp_Trsf& existing) {
+                                 return sameTransform(existing, candidate);
+                             })) {
+                candidates.push_back(candidate);
+            }
         }
     } while (std::next_permutation(permutation.begin(), permutation.end()));
     return candidates;
+}
+
+bool sameTransform(const gp_Trsf& lhs, const gp_Trsf& rhs) noexcept {
+    constexpr double kDuplicateTolerance = 1.0e-12;
+    for (int row = 1; row <= 3; ++row) {
+        for (int column = 1; column <= 4; ++column) {
+            if (std::abs(lhs.Value(row, column) - rhs.Value(row, column)) >
+                kDuplicateTolerance) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool transformLexicographicallyLess(const gp_Trsf& lhs,
@@ -340,8 +396,32 @@ DeepGeometryResult compareImpl(const DeepGeometryRequest& request) {
 
     Candidate best;
     bool completedBoolean = false;
-    for (const gp_Trsf& transform : alignmentCandidates(frameA, frameB)) {
+    auto candidates = alignmentCandidates(frameA, frameB);
+    // Most CAD revisions preserve the prototype's local coordinate system.
+    // Test that exact frame first, but never assume it is correct: if it does
+    // not reach the mathematically minimal symmetric difference, all rigid
+    // principal-frame hypotheses are still evaluated.
+    gp_Trsf identity;
+    if (std::none_of(candidates.begin(), candidates.end(),
+                     [&identity](const gp_Trsf& candidate) {
+                         return sameTransform(candidate, identity);
+                     })) {
+        candidates.insert(candidates.begin(), identity);
+    } else {
+        const auto foundIdentity = std::find_if(
+            candidates.begin(), candidates.end(),
+            [&identity](const gp_Trsf& candidate) {
+                return sameTransform(candidate, identity);
+            });
+        const gp_Trsf exactIdentity = *foundIdentity;
+        candidates.erase(foundIdentity);
+        candidates.insert(candidates.begin(), exactIdentity);
+    }
+    const double theoreticalMinimumDifference = volumeDifference;
+    for (const gp_Trsf& transform : candidates) {
         try {
+            // Keep an independent transformed B-Rep for deterministic Boolean
+            // behavior across equivalent/symmetric alignment candidates.
             const TopoDS_Shape alignedB =
                 BRepBuilderAPI_Transform(*shapeB, transform, true).Shape();
             const double common = commonVolume(
@@ -357,6 +437,16 @@ DeepGeometryResult compareImpl(const DeepGeometryRequest& request) {
                 best = candidate;
             }
             completedBoolean = true;
+            if (difference <=
+                theoreticalMinimumDifference + acceptedDifference) {
+                // A tested rigid transform with Boolean symmetric difference
+                // at the volume-derived global lower bound is already an
+                // optimal overlap proof. Continuing through equivalent frame
+                // hypotheses cannot improve it and only feeds additional
+                // nearly coincident B-Reps into expensive/unstable Boolean
+                // paths. Candidate ordering is deterministic.
+                break;
+            }
         } catch (const Standard_Failure&) {
             // A failed candidate is not fatal if another unambiguous frame
             // candidate completes successfully.

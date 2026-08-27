@@ -69,7 +69,9 @@ add_test(NAME stepcompare.viewer.step_preview_model
 
 add_executable(stepcompare_viewer_comparison_readability_tests
     comparison_readability_tests.cpp
-    "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui/comparison_readability_model.cpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui/comparison_readability_model.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui/dropped_step_files.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui/pair_isolation_model.cpp")
 
 target_include_directories(stepcompare_viewer_comparison_readability_tests
     PRIVATE

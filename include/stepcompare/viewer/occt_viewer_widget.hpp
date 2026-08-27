@@ -3,9 +3,11 @@
 #include <QWidget>
 
 #include <functional>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 #include <stepcompare/viewer/deviation_coloring.hpp>
 #include <stepcompare/viewer/viewer_state.hpp>
@@ -18,6 +20,11 @@ namespace stepcompare::viewer {
 struct DeviationColorAssignment final {
     StableSelectionId stableId;
     double maximumMm{};
+};
+
+struct ChangedFeatureHighlightAssignment final {
+    StableSelectionId ownerStableId;
+    std::vector<std::uint32_t> faceIndices;
 };
 
 // Qt/OCCT adapter boundary. TopoDS_Shape does not escape into core or application APIs.
@@ -45,6 +52,14 @@ public:
     void setDifferenceStates(std::span<const StableSelectionId> changedStableIds);
     void clearDifferenceStates();
 
+    // Presentation-only assembly isolation. Stable IDs must identify existing
+    // occurrence presentations; invalid input is rejected without changing
+    // current visibility.
+    [[nodiscard]] bool setIsolatedStableIds(
+        std::span<const StableSelectionId> stableIds);
+    void clearIsolation();
+    [[nodiscard]] bool isolationActive() const noexcept;
+
     // Applies aggregate component deviation values to existing
     // presentations. The batch is atomic: invalid/non-finite input leaves the
     // previous heatmap untouched. This is a GUI-thread presentation API and
@@ -60,12 +75,16 @@ public:
     void setAlignedLocation(const StableSelectionId& stableId,
                             const TopLoc_Location& bToA);
     void clearAlignedLocation(const StableSelectionId& stableId);
+    void clearAlignedLocations();
 
     void applyState(const ViewerStateModel& state);
     void selectStableId(const StableSelectionId& stableId, bool fitSelection);
     void selectFeature(const StableSelectionId& ownerStableId,
                        std::span<const std::uint32_t> faceIndices,
                        bool fitSelection);
+    [[nodiscard]] bool setChangedFeatureHighlights(
+        std::span<const ChangedFeatureHighlightAssignment> assignments);
+    void clearChangedFeatureHighlights();
     void clearSelection();
     void setSelectionChangedHandler(
         std::function<void(std::string)> handler);

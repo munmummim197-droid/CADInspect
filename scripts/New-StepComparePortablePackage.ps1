@@ -55,8 +55,10 @@ if (-not (Test-Path -LiteralPath $windeployqt -PathType Leaf)) {
     --no-opengl-sw `
     --dir $staging `
     (Join-Path $staging 'StepCompare.exe')
+$deploymentMode = 'windeployqt'
 if ($LASTEXITCODE -ne 0) {
-    Write-Warning "windeployqt failed with exit code ${LASTEXITCODE}; using the pinned minimal plugin deployment below."
+    $deploymentMode = 'pinned-vcpkg-applocal-fallback'
+    Write-Warning "windeployqt failed with exit code ${LASTEXITCODE}; validating the explicit pinned vcpkg/AppLocal fallback."
 }
 
 # The vcpkg applocal integration has already copied all linked Qt/OCCT DLLs.
@@ -96,11 +98,44 @@ $crtDirectory = Join-Path $redistVersion.FullName 'x64\Microsoft.VC145.CRT'
 Get-ChildItem -LiteralPath $crtDirectory -Filter '*.dll' -File |
     Copy-Item -Destination $staging -Force
 
+# Preserve the application license and the exact vcpkg license metadata used by
+# this build. Binary packages are incomplete without these notices.
+$projectLicense = Join-Path $projectRoot 'LICENSE'
+$thirdPartyNotices = Join-Path $projectRoot 'THIRD_PARTY_NOTICES.md'
+foreach ($notice in @($projectLicense, $thirdPartyNotices)) {
+    if (-not (Test-Path -LiteralPath $notice -PathType Leaf)) {
+        throw "Required release notice is missing: ${notice}"
+    }
+    Copy-Item -LiteralPath $notice -Destination $staging -Force
+}
+
+$licenseDirectory = Join-Path $staging 'licenses'
+New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
+$vcpkgShare = Join-Path $projectRoot 'vcpkg_installed\x64-windows\share'
+$dependencyNotices = @(Get-ChildItem -LiteralPath $vcpkgShare -Filter copyright `
+    -File -Recurse)
+if ($dependencyNotices.Count -eq 0) {
+    throw 'No vcpkg dependency license metadata was found.'
+}
+foreach ($notice in $dependencyNotices) {
+    $packageName = $notice.Directory.Name
+    Copy-Item -LiteralPath $notice.FullName `
+        -Destination (Join-Path $licenseDirectory "${packageName}.txt") -Force
+}
+
 $required = @(
     (Join-Path $staging 'StepCompare.exe'),
     (Join-Path $staging 'stepcompare-cli.exe'),
     (Join-Path $staging 'Qt6Core.dll'),
-    (Join-Path $staging 'platforms\qwindows.dll')
+    (Join-Path $staging 'Qt6Gui.dll'),
+    (Join-Path $staging 'Qt6Widgets.dll'),
+    (Join-Path $staging 'TKernel.dll'),
+    (Join-Path $staging 'TKOpenGl.dll'),
+    (Join-Path $staging 'platforms\qwindows.dll'),
+    (Join-Path $staging 'imageformats\qico.dll'),
+    (Join-Path $staging 'styles\qmodernwindowsstyle.dll'),
+    (Join-Path $staging 'LICENSE'),
+    (Join-Path $staging 'THIRD_PARTY_NOTICES.md')
 )
 foreach ($path in $required) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -123,10 +158,24 @@ $manifest = Get-ChildItem -LiteralPath $destination -Recurse -File |
         }
     }
 
+$manifestPath = Join-Path $destination 'manifest-sha256.json'
+$manifestDocument = [PSCustomObject]@{
+    SchemaVersion = 1
+    Product = 'CADInspect'
+    Version = '0.1.0'
+    DeploymentMode = $deploymentMode
+    Files = @($manifest)
+}
+$manifestJson = $manifestDocument | ConvertTo-Json -Depth 5
+[IO.File]::WriteAllText($manifestPath, $manifestJson,
+    [Text.UTF8Encoding]::new($false))
+
 [PSCustomObject]@{
     PackageRoot = $destination
-    FileCount = @($manifest).Count
-    TotalBytes = ($manifest | Measure-Object -Property SizeBytes -Sum).Sum
+    FileCount = @($manifest).Count + 1
+    TotalBytes = (($manifest | Measure-Object -Property SizeBytes -Sum).Sum +
+        (Get-Item -LiteralPath $manifestPath).Length)
     StepCompareSha256 = ($manifest | Where-Object Path -EQ 'StepCompare.exe').SHA256
     CliSha256 = ($manifest | Where-Object Path -EQ 'stepcompare-cli.exe').SHA256
+    ManifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }

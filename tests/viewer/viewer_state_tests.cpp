@@ -110,6 +110,49 @@ void presentationModesContract() {
     }
 }
 
+void sectionSettingsContract() {
+    using namespace stepcompare::viewer;
+    ViewerStateModel state;
+    expect(state.sectionSettings() == SectionSettings{},
+           "section controls must start at camera, centered, A+B");
+
+    constexpr SectionDirection directions[]{
+        SectionDirection::XY,
+        SectionDirection::YZ,
+        SectionDirection::ZX,
+        SectionDirection::Front,
+        SectionDirection::Top,
+        SectionDirection::Right,
+        SectionDirection::Camera,
+    };
+    for (const auto direction : directions) {
+        SectionSettings settings;
+        settings.direction = direction;
+        settings.target = SectionTarget::B;
+        settings.normalizedOffset = 0.35;
+        settings.flipped = true;
+        state.setSectionSettings(settings);
+        expect(state.sectionSettings().direction == direction &&
+                   state.sectionSettings().target == SectionTarget::B &&
+                   state.sectionSettings().flipped,
+               "every section direction must survive state round trip");
+        expect(toString(direction) != "",
+               "every section direction must have a stable label");
+    }
+    SectionSettings clamped;
+    clamped.normalizedOffset = 5.0;
+    state.setSectionSettings(clamped);
+    expect(state.sectionSettings().normalizedOffset == 1.0,
+           "section offset must remain bounded by the model extent");
+    state.resetSectionSettings();
+    expect(state.sectionSettings() == SectionSettings{},
+           "section reset must restore the practical default");
+    expect(toString(SectionTarget::A) == "A" &&
+               toString(SectionTarget::B) == "B" &&
+               toString(SectionTarget::Both) == "A+B",
+           "section target labels must be explicit");
+}
+
 }  // namespace
 
 int main() {
@@ -118,6 +161,7 @@ int main() {
     coordinateAndSelectionContracts();
     cameraStateContract();
     presentationModesContract();
+    sectionSettingsContract();
 
     if (failures != 0) {
         std::cerr << failures << " viewer assertion(s) failed\n";

@@ -2,6 +2,11 @@
 /build/
 /out/
 /dist/
+/dist-*/
+/release-installer/
+/installer-output/
+/artifacts/
+/publish/
 /vcpkg_installed/
 /.cache/
 /.tools/
@@ -10,8 +15,11 @@
 CMakeUserPresets.json
 .vs/
 .vscode/
+.idea/
 *.user
 *.suo
+*.userosscache
+*.sln.docstates
 *.VC.db
 *.VC.VC.opendb
 
@@ -27,11 +35,21 @@ CMakeUserPresets.json
 
 # Test, benchmark, and runtime output
 Testing/
+TestResults/
 test-results/
 benchmark-results/
 reports/
 *.log
 *.tmp
+*.dmp
+*.dump
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated archives belong in the release channel, not source control
+*.zip
+*.7z
 
 # StepCompare caches and large CAD fixtures
 *.stepcache

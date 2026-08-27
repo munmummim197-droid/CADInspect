@@ -75,6 +75,18 @@ TopoDS_Shape transformed(const TopoDS_Shape& shape,
     return BRepBuilderAPI_Transform(shape, move * rotation, true).Shape();
 }
 
+TopoDS_Shape transformedAroundY(const TopoDS_Shape& shape,
+                                double angleDegrees,
+                                const gp_Vec& translation) {
+    gp_Trsf rotation;
+    rotation.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0),
+                                gp_Dir(0.0, 1.0, 0.0)),
+                         angleDegrees * std::numbers::pi / 180.0);
+    gp_Trsf move;
+    move.SetTranslation(translation);
+    return BRepBuilderAPI_Transform(shape, move * rotation, true).Shape();
+}
+
 bool mapsPoint(const stepcompare::import::RigidTransformMm& transform,
                const gp_Pnt& from,
                const gp_Pnt& expected,
@@ -291,6 +303,40 @@ bool compareHoleAddedAndRemoved(const std::filesystem::path& directory) {
     return passed;
 }
 
+bool nearCardinalComplexRotationIsStable(
+    const std::filesystem::path& directory) {
+    const auto pathA = directory / "near-cardinal-complex-a.step";
+    const auto pathB = directory / "near-cardinal-complex-b.step";
+    const auto base = BRepPrimAPI_MakeBox(80.0, 45.0, 18.0).Shape();
+    const auto hole = BRepPrimAPI_MakeCylinder(
+                          gp_Ax2(gp_Pnt(17.0, 12.0, -1.0),
+                                 gp_Dir(0.0, 0.0, 1.0)),
+                          4.0,
+                          20.0)
+                          .Shape();
+    BRepAlgoAPI_Cut cut(base, hole);
+    cut.Build();
+    if (cut.HasErrors() ||
+        !writeStep(pathA, cut.Shape()) ||
+        !writeStep(pathB,
+                   transformedAroundY(cut.Shape(),
+                                      180.0,
+                                      gp_Vec(120.0, 7.0, 35.0)))) {
+        return check(false, "cannot write near-cardinal complex fixtures");
+    }
+
+    OcctDeepGeometryEngine engine;
+    const auto result = engine.compareAligned(
+        {importSinglePrototype(pathA), importSinglePrototype(pathB)});
+    bool passed = check(result.status == DeepGeometryStatus::SameGeometry,
+                        "near-cardinal complex rotation must be proven same");
+    passed &= check(result.alignmentProven,
+                    "near-cardinal complex alignment must be proven");
+    passed &= check(result.symmetricDifferenceVolumeMm3 <= 1.0e-4,
+                    "near-cardinal complex Vdiff must be near zero");
+    return passed;
+}
+
 bool symmetricCylinderRotationIsBooleanProven(
     const std::filesystem::path& directory) {
     const auto pathA = directory / "cylinder-a.step";
@@ -346,6 +392,7 @@ int main() {
     const bool passed = compareSupportedRigidCases(directory) &&
                         compareChangedGeometry(directory) &&
                         compareHoleAddedAndRemoved(directory) &&
+                        nearCardinalComplexRotationIsStable(directory) &&
                         symmetricCylinderRotationIsBooleanProven(directory) &&
                         symmetricVolumeDifferenceIsConclusive(directory) &&
                         proveCanonicalSymmetricTranslationAndRejectUnprovenDifference(

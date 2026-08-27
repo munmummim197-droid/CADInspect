@@ -601,6 +601,28 @@ void cacheIntegrationTest() {
            "canonical report must expose cache hit/miss statistics");
 }
 
+void repeatedOccurrencesReuseDeviationEvidenceTest() {
+    MockImporter importer;
+    importer.results.push_back(success(repeatedAssemblyModel(u8"A.step")));
+    importer.results.push_back(success(repeatedAssemblyModel(u8"B.step")));
+    MockDeepGeometry deep;
+    deep.result.status = DeepGeometryStatus::SameGeometry;
+    deep.result.alignmentProven = true;
+    MockSurfaceDeviation surface;
+    ComparisonCoordinator coordinator(importer, deep, &surface);
+
+    const auto result = coordinator.compare(
+        ComparisonRequest{u8"A.step", u8"B.step", {}, true});
+    expect(result.status == ComparisonRunStatus::Completed &&
+               result.report.components.size() == 2U,
+           "repeated assembly comparison must complete with both occurrences");
+    expect(deep.calls == 1 && surface.calls == 1,
+           "repeated occurrences must reuse deep and surface evidence for the "
+           "same prototype pair");
+    expect(result.report.deepDeviation.sampleCount == 32U,
+           "cached deviation must still be aggregated once per physical occurrence");
+}
+
 void surfaceCancellationAndFailureTests() {
     {
         MockImporter importer;
@@ -667,6 +689,74 @@ void byteIdenticalAssemblyProofTest() {
            "identity proof must not pretend to run geometry sampling");
 }
 
+void guiAssemblyDefersFeatureEvidenceTest() {
+    MockImporter importer;
+    importer.results.push_back(success(assemblyModel(u8"A.step", 20.0)));
+    importer.results.push_back(success(assemblyModel(u8"B.step", 20.0)));
+    MockDeepGeometry deep;
+    deep.result.status = DeepGeometryStatus::SameGeometry;
+    deep.result.alignmentProven = true;
+    MockSurfaceDeviation surface;
+    MockFeatureRecognizer features;
+    ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+    ComparisonRequest request{u8"A.step", u8"B.step", {}, true};
+    request.featureEvidenceScope =
+        stepcompare::application::FeatureEvidenceScope::SinglePartOnly;
+
+    const auto result = coordinator.compare(request);
+    expect(result.status == ComparisonRunStatus::Completed &&
+               result.report.features.empty() && features.calls == 0,
+           "GUI assembly comparison must defer feature recognition until Show Only Pair");
+}
+
+void guiSinglePartStillRunsFeatureEvidenceTest() {
+    MockImporter importer;
+    importer.results.push_back(success(partModel(u8"A.step")));
+    importer.results.push_back(success(partModel(u8"B.step")));
+    MockDeepGeometry deep;
+    deep.result.status = DeepGeometryStatus::SameGeometry;
+    deep.result.alignmentProven = true;
+    MockSurfaceDeviation surface;
+    MockFeatureRecognizer features;
+    ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+    ComparisonRequest request{u8"A.step", u8"B.step", {}, true};
+    request.featureEvidenceScope =
+        stepcompare::application::FeatureEvidenceScope::SinglePartOnly;
+
+    const auto result = coordinator.compare(request);
+    expect(result.status == ComparisonRunStatus::Completed &&
+               result.report.features.size() == 1U && features.calls == 2,
+           "single Part A/B must keep automatic feature comparison");
+}
+
+void selectedAssemblyPairOnlyFeatureEvidenceTest() {
+    MockImporter importer;
+    importer.results.push_back(success(assemblyModel(u8"A.step", 20.0)));
+    importer.results.push_back(success(assemblyModel(u8"B.step", 25.0)));
+    MockDeepGeometry deep;
+    deep.result.status = DeepGeometryStatus::SameGeometry;
+    deep.result.alignmentProven = true;
+    MockSurfaceDeviation surface;
+    MockFeatureRecognizer features;
+    ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+    stepcompare::application::FeaturePairComparisonRequest request;
+    request.inputAUtf8 = u8"A.step";
+    request.inputBUtf8 = u8"B.step";
+    request.componentIdA = "component-2";
+    request.componentIdB = "component-2";
+
+    const auto result = coordinator.compareFeaturePair(request);
+    expect(result.status == ComparisonRunStatus::Completed &&
+               result.features.size() == 1U && features.calls == 2 &&
+               deep.calls == 1 && surface.calls == 0,
+           "Show Only Pair feature job must analyze one pair without whole-assembly surface comparison");
+    if (!result.features.empty()) {
+        expect(result.features.front().ownerComponentIdA == "component-2" &&
+                   result.features.front().ownerComponentIdB == "component-2",
+               "feature pair evidence must retain only the selected occurrence identities");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -683,8 +773,12 @@ int main() {
     ambiguityAndFailureTests();
     cancellationTest();
     cacheIntegrationTest();
+    repeatedOccurrencesReuseDeviationEvidenceTest();
     surfaceCancellationAndFailureTests();
     byteIdenticalAssemblyProofTest();
+    guiAssemblyDefersFeatureEvidenceTest();
+    guiSinglePartStillRunsFeatureEvidenceTest();
+    selectedAssemblyPairOnlyFeatureEvidenceTest();
     if (failures != 0) {
         std::cerr << failures << " application assertion(s) failed\n";
         return EXIT_FAILURE;

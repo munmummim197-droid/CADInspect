@@ -36,6 +36,22 @@
         "STEPCOMPARE_ENABLE_QT": "ON",
         "STEPCOMPARE_ENABLE_OCCT": "ON"
       }
+    },
+    {
+      "name": "oss-release",
+      "displayName": "OSS Release (Visual Studio 2022 x64)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs-oss-release",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_MANIFEST_INSTALL": "ON",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
+        "STEPCOMPARE_BUILD_TESTS": "ON",
+        "STEPCOMPARE_ENABLE_QT": "ON",
+        "STEPCOMPARE_ENABLE_OCCT": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -48,6 +64,11 @@
       "name": "full-dev",
       "configurePreset": "full-dev",
       "configuration": "Debug"
+    },
+    {
+      "name": "oss-release",
+      "configurePreset": "oss-release",
+      "configuration": "Release"
     }
   ],
   "testPresets": [
@@ -66,6 +87,17 @@
       "name": "full-dev",
       "configurePreset": "full-dev",
       "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "oss-release",
+      "configurePreset": "oss-release",
+      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       },

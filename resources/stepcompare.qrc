@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="StepCompare.ico">icons/StepCompare.ico</file>
+    </qresource>
+</RCC>

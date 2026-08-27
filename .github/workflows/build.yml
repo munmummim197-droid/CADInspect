@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release-test:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      VCPKG_ROOT: C:\vcpkg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify toolchain
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath "$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake")) {
+            throw "The GitHub-hosted vcpkg checkout was not found."
+          }
+          cmake --version
+          & "$env:VCPKG_ROOT\vcpkg.exe" version
+
+      - name: Configure Release
+        run: cmake --preset oss-release
+
+      - name: Build Release
+        run: cmake --build --preset oss-release
+
+      - name: Test Release
+        run: ctest --preset oss-release
+
+      - name: Confirm source-only workspace policy
+        shell: pwsh
+        run: |
+          git status --short
+          if (git ls-files | Select-String -Pattern '\.(exe|dll|pdb|msi|zip|7z)$') {
+            throw "Generated binary/archive is tracked."
+          }
