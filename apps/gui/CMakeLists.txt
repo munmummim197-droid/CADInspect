@@ -1,11 +1,17 @@
 add_executable(stepcompare_gui WIN32
     comparison_runner.cpp
     comparison_runner.hpp
+    comparison_readability_model.cpp
+    comparison_readability_model.hpp
+    comparison_results_panel.cpp
+    comparison_results_panel.hpp
     main.cpp
     component_tree_panel.cpp
     component_tree_panel.hpp
     preview_status_widget.cpp
     preview_status_widget.hpp
+    preview_quality.cpp
+    preview_quality.hpp
     step_preview_loader.cpp
     step_preview_loader.hpp
     step_preview_model.cpp
@@ -27,10 +33,12 @@ target_link_libraries(stepcompare_gui
         StepCompare::reporting
         StepCompare::deep_occt
         StepCompare::surface_deviation_occt
+        StepCompare::feature_occt
         StepCompare::step_import_occt
         TKernel
         TKMath
         TKBRep
+        TKMesh
         Qt6::Core
         Qt6::Concurrent
         Qt6::Gui

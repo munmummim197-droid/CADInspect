@@ -8,6 +8,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
+
+#if STEPCOMPARE_TEST_QT_JSON
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#endif
 
 namespace {
 
@@ -28,7 +36,7 @@ protected:
 stepcompare::reporting::Report sampleReport() {
     using namespace stepcompare::reporting;
     Report report{};
-    report.schemaVersion = "1.0";
+    report.schemaVersion = "1.1";
     report.softwareVersion = "0.1.0";
     report.algorithmVersion = "fast-2";
     report.inputA = {
@@ -90,6 +98,19 @@ stepcompare::reporting::Report sampleReport() {
         .deviation = {.available = true, .maximumMm = 0.125},
         .confidence = 0.875,
     });
+    FeatureRow feature;
+    feature.idA = "A-1/feature/7";
+    feature.idB = "B-1/feature/7";
+    feature.ownerComponentIdA = "A-1";
+    feature.ownerComponentIdB = "B-1";
+    feature.type = "THROUGH_HOLE";
+    feature.evidenceStatus = "GEOMETRY_PROVEN";
+    feature.result = "PASS";
+    feature.reason = "FEATURE_SAME_AFTER_ALIGNMENT";
+    feature.profileA = feature.profileB = "CIRCULAR";
+    feature.throughA = feature.throughB = true;
+    feature.confidence = 0.95;
+    report.features.push_back(std::move(feature));
     return report;
 }
 
@@ -97,7 +118,7 @@ void jsonTests() {
     const auto json = stepcompare::reporting::toJson(sampleReport());
     expect(json.starts_with('{') && json.ends_with("}\n"),
            "JSON must be one complete object with a trailing newline");
-    expect(json.find("\"schemaVersion\":\"1.0\"") != std::string::npos,
+    expect(json.find("\"schemaVersion\":\"1.1\"") != std::string::npos,
            "JSON must contain schemaVersion");
     expect(json.find("\"algorithmVersion\":\"fast-2\"") != std::string::npos,
            "JSON must contain algorithmVersion");
@@ -121,6 +142,33 @@ void jsonTests() {
                json.find("\"triangleDistanceEvaluations\":4096") !=
                    std::string::npos,
            "JSON must expose quantitative deviation evidence counts");
+#if STEPCOMPARE_TEST_QT_JSON
+    QJsonParseError parseError;
+    const QJsonDocument parsed = QJsonDocument::fromJson(
+        QByteArray(json.data(), static_cast<qsizetype>(json.size())),
+        &parseError);
+    expect(parseError.error == QJsonParseError::NoError && parsed.isObject(),
+           "canonical report must be syntactically parsed as a JSON object");
+    if (parsed.isObject()) {
+        const QJsonObject root = parsed.object();
+        expect(root.value(QStringLiteral("schemaVersion")).toString() ==
+                   QStringLiteral("1.1"),
+               "parsed canonical schema version must be 1.1");
+        expect(root.value(QStringLiteral("features")).isArray() &&
+                   root.value(QStringLiteral("features")).toArray().size() == 1,
+               "parsed 1.1 canonical report must carry additive feature evidence");
+        expect(root.value(QStringLiteral("verdict")).toObject()
+                       .value(QStringLiteral("decision"))
+                       .toString() == QStringLiteral("FAIL") &&
+                   root.value(QStringLiteral("placement")).toObject()
+                       .value(QStringLiteral("translationBMinusAMm")).toObject()
+                       .value(QStringLiteral("x")).toDouble() == 5.0,
+               "legacy 1.0 field meanings must remain parseable and unchanged in 1.1");
+    }
+#else
+    expect(json.starts_with('{') && json.ends_with("}\n"),
+           "standalone writer configuration must still emit a complete JSON object");
+#endif
 }
 
 void csvTests() {
@@ -135,7 +183,7 @@ void csvTests() {
     expect(!hasBareLf, "CSV must not emit bare LF line endings");
     expect(csv.find("\"Tấm, \"\"trên\"\"\r\ntrái\"") != std::string::npos,
            "CSV must quote commas/newlines and double embedded quotes");
-    expect(csv.find("metadata,schemaVersion,1.0") != std::string::npos,
+    expect(csv.find("metadata,schemaVersion,1.1") != std::string::npos,
            "CSV must include versioned metadata");
     expect(csv.find("component,,,A-1,B-1") != std::string::npos,
            "CSV must include component records");

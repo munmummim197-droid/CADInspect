@@ -32,6 +32,7 @@ std::vector<stepcompare::viewer::ResultRowSnapshot>
 StepPreviewSceneAdapter::display(
     const stepcompare::import::ImportedModel& model,
     const stepcompare::viewer::ModelSide side,
+    const PreviewQualityPolicy& quality,
     stepcompare::viewer::OcctViewerWidget& viewer) const {
     using stepcompare::viewer::StableSelectionId;
 
@@ -64,7 +65,8 @@ StepPreviewSceneAdapter::display(
                             side,
                             StableSelectionId{occurrence.stableId.value()},
                             false,
-                            false);
+                            false,
+                            quality.drawFeatureEdges);
     }
     viewer.refreshPresentations();
     viewer.fitAll();

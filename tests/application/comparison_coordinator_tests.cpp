@@ -176,6 +176,58 @@ public:
     }
 };
 
+class MockFeatureRecognizer final
+    : public stepcompare::feature::FeatureRecognitionPort {
+public:
+    int calls{};
+    double secondCenterShiftX{};
+    double secondPrimarySizeDelta{};
+    double secondDepthDelta{};
+    double secondRadiusDelta{};
+    double secondAngleDelta{};
+    bool firstAmbiguous{};
+    bool secondAmbiguous{};
+    bool firstEmpty{};
+    bool secondEmpty{};
+    std::stop_source* stopSourceToRequest{};
+
+    stepcompare::feature::FeatureRecognitionResult recognize(
+        const stepcompare::import::GeometryPayloadPtr&,
+        double,
+        double,
+        std::stop_token cancellation) noexcept override {
+        if (cancellation.stop_requested()) {
+            return {.cancelled = true};
+        }
+        ++calls;
+        if (calls == 1 && stopSourceToRequest != nullptr) {
+            stopSourceToRequest->request_stop();
+            return {.cancelled = true};
+        }
+        if ((calls == 1 && firstEmpty) || (calls == 2 && secondEmpty)) {
+            return {.completed = true};
+        }
+        stepcompare::feature::RecognizedFeature hole;
+        hole.stableId = "feature/face/7";
+        hole.type = stepcompare::feature::FeatureType::ThroughHole;
+        hole.evidence = (calls == 1 ? firstAmbiguous : secondAmbiguous)
+                            ? stepcompare::feature::RecognitionEvidence::Ambiguous
+                            : stepcompare::feature::RecognitionEvidence::GeometryProven;
+        hole.confidence = 0.98;
+        hole.centerLocalMm = {
+            2.0 + (calls == 2 ? secondCenterShiftX : 0.0), 3.0, 4.0};
+        hole.axis = {0.0, 0.0, 1.0};
+        hole.primarySizeMm = 8.0 + (calls == 2 ? secondPrimarySizeDelta : 0.0);
+        hole.depthMm = 20.0 + (calls == 2 ? secondDepthDelta : 0.0);
+        hole.radiusMm = 4.0 + (calls == 2 ? secondRadiusDelta : 0.0);
+        hole.angleDegrees = calls == 2 ? secondAngleDelta : 0.0;
+        hole.profile = "CIRCULAR";
+        hole.through = true;
+        hole.faceIndices = {7};
+        return {.completed = true, .features = {std::move(hole)}};
+    }
+};
+
 StepImportResult success(ImportedModel model) {
     StepImportResult result;
     result.model = std::move(model);
@@ -243,6 +295,145 @@ void movedPartFailsTest() {
     expect(std::abs(result.report.components.front()
                         .translationBMinusAMm.x - 5.0) < 1.0e-12,
            "component report delta must follow B-A convention");
+}
+
+void movedPartKeepsAlignedFeaturePlacementPass() {
+    MockImporter importer;
+    importer.results.push_back(success(partModel(u8"A.step")));
+    importer.results.push_back(success(partModel(u8"B.step", 10.0, 5.0)));
+    MockDeepGeometry deep;
+    deep.result.status = DeepGeometryStatus::SameGeometry;
+    deep.result.alignmentProven = true;
+    MockSurfaceDeviation surface;
+    MockFeatureRecognizer features;
+    ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+    const auto result = coordinator.compare(
+        ComparisonRequest{u8"A.step", u8"B.step", {}, true});
+
+    expect(result.verdict.decision == Decision::Fail,
+           "absolute component move must preserve canonical whole-model FAIL");
+    expect(result.report.features.size() == 1,
+           "deep comparison must append one feature evidence row");
+    if (!result.report.features.empty()) {
+        const auto& feature = result.report.features.front();
+        expect(std::abs(feature.absoluteDifferenceBMinusAMm.x - 5.0) < 1.0e-12,
+               "absolute feature difference must retain the owner move B-A");
+        expect(std::abs(feature.alignedDifferenceBMinusAMm.x) < 1.0e-12 &&
+                   feature.result == "PASS" &&
+                   feature.evidenceStatus == "GEOMETRY_PROVEN",
+               "rigid owner move must align away without false feature placement FAIL");
+        expect(stepcompare::reporting::toJson(result.report).find(
+                   "\"alignedDifferenceBMinusAMm\"") != std::string::npos,
+               "canonical JSON must expose aligned feature evidence additively");
+    }
+}
+
+void alignedFeaturePlacementChangeFailsFeatureEvidence() {
+    MockImporter importer;
+    importer.results.push_back(success(partModel(u8"A.step")));
+    importer.results.push_back(success(partModel(u8"B.step")));
+    MockDeepGeometry deep;
+    deep.result.status = DeepGeometryStatus::SameGeometry;
+    deep.result.alignmentProven = true;
+    MockSurfaceDeviation surface;
+    MockFeatureRecognizer features;
+    features.secondCenterShiftX = 1.0;
+    ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+    const auto result = coordinator.compare(
+        ComparisonRequest{u8"A.step", u8"B.step", {}, true});
+    expect(result.report.features.size() == 1 &&
+                   result.report.features.front().result == "FAIL" &&
+                   result.report.features.front().reason ==
+                       "FEATURE_POSITION_CHANGED" &&
+               std::abs(result.report.features.front()
+                            .alignedDifferenceBMinusAMm.x - 1.0) < 1.0e-12,
+           "feature placement remaining after rigid alignment must use the explicit position reason");
+}
+
+void featureReasonTaxonomyTests() {
+    const auto compareWith = [](auto configure) {
+        MockImporter importer;
+        importer.results.push_back(success(partModel(u8"A.step")));
+        importer.results.push_back(success(partModel(u8"B.step")));
+        MockDeepGeometry deep;
+        deep.result.status = DeepGeometryStatus::SameGeometry;
+        deep.result.alignmentProven = true;
+        MockSurfaceDeviation surface;
+        MockFeatureRecognizer features;
+        configure(features);
+        ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+        return coordinator.compare(
+            ComparisonRequest{u8"A.step", u8"B.step", {}, true});
+    };
+
+    const auto size = compareWith(
+        [](auto& features) { features.secondPrimarySizeDelta = 1.0; });
+    expect(size.report.features.front().reason == "FEATURE_SIZE_CHANGED",
+           "feature dimension changes must use FEATURE_SIZE_CHANGED");
+
+    const auto depth = compareWith(
+        [](auto& features) { features.secondDepthDelta = 1.0; });
+    expect(depth.report.features.front().reason == "FEATURE_DEPTH_CHANGED",
+           "feature depth changes must use FEATURE_DEPTH_CHANGED");
+
+    const auto radius = compareWith(
+        [](auto& features) { features.secondRadiusDelta = 1.0; });
+    expect(radius.report.features.front().reason == "FEATURE_RADIUS_CHANGED",
+           "feature radius changes must use FEATURE_RADIUS_CHANGED");
+
+    const auto angle = compareWith(
+        [](auto& features) { features.secondAngleDelta = 1.0; });
+    expect(angle.report.features.front().reason == "FEATURE_ANGLE_CHANGED",
+           "feature angle changes must use FEATURE_ANGLE_CHANGED");
+}
+
+void ambiguousUnmatchedRemainsCheckTests() {
+    const auto run = [](const bool ambiguousA) {
+        MockImporter importer;
+        importer.results.push_back(success(partModel(u8"A.step")));
+        importer.results.push_back(success(partModel(u8"B.step")));
+        MockDeepGeometry deep;
+        deep.result.status = DeepGeometryStatus::SameGeometry;
+        deep.result.alignmentProven = true;
+        MockSurfaceDeviation surface;
+        MockFeatureRecognizer features;
+        features.firstAmbiguous = ambiguousA;
+        features.secondAmbiguous = !ambiguousA;
+        features.firstEmpty = !ambiguousA;
+        features.secondEmpty = ambiguousA;
+        ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+        return coordinator.compare(
+            ComparisonRequest{u8"A.step", u8"B.step", {}, true});
+    };
+
+    for (const bool ambiguousA : {true, false}) {
+        const auto result = run(ambiguousA);
+        expect(result.report.features.size() == 1 &&
+                   result.report.features.front().result == "CHECK" &&
+                   result.report.features.front().reason == "FEATURE_AMBIGUOUS",
+               "an unmatched ambiguous feature on either side must remain CHECK");
+    }
+}
+
+void featureStageCancellationTest() {
+    MockImporter importer;
+    importer.results.push_back(success(partModel(u8"A.step")));
+    importer.results.push_back(success(partModel(u8"B.step")));
+    MockDeepGeometry deep;
+    deep.result.status = DeepGeometryStatus::SameGeometry;
+    deep.result.alignmentProven = true;
+    MockSurfaceDeviation surface;
+    MockFeatureRecognizer features;
+    std::stop_source cancellation;
+    features.stopSourceToRequest = &cancellation;
+    ComparisonCoordinator coordinator(importer, deep, &surface, &features);
+    ComparisonRequest request{u8"A.step", u8"B.step", {}, true};
+    request.cancellation = cancellation.get_token();
+    const auto result = coordinator.compare(request);
+    expect(result.status == ComparisonRunStatus::Cancelled &&
+               result.report.execution.cancellationRequested &&
+               result.report.execution.status == "CANCELLED",
+           "cancellation received inside feature recognition must prevent COMPLETED publication");
 }
 
 void fastOnlyIsCheckTest() {
@@ -481,6 +672,11 @@ void byteIdenticalAssemblyProofTest() {
 int main() {
     exactPartDeepPassTest();
     movedPartFailsTest();
+    movedPartKeepsAlignedFeaturePlacementPass();
+    alignedFeaturePlacementChangeFailsFeatureEvidence();
+    featureReasonTaxonomyTests();
+    ambiguousUnmatchedRemainsCheckTests();
+    featureStageCancellationTest();
     fastOnlyIsCheckTest();
     assemblyMatchingTest();
     changedGeometryFailsTest();

@@ -8,6 +8,7 @@
 #include "stepcompare/domain/types.hpp"
 #include "stepcompare/import/step_import_port.hpp"
 #include "stepcompare/reporting/report.hpp"
+#include "stepcompare/feature/feature_recognition_port.hpp"
 
 #include <cstddef>
 #include <functional>
@@ -85,6 +86,12 @@ public:
                           deviation::SurfaceDeviationPort* surfaceDeviation = nullptr,
                           std::size_t cacheBudgetBytes = 256U * 1024U * 1024U) noexcept;
 
+    ComparisonCoordinator(import::StepImportPort& importer,
+                          deep::DeepGeometryPort& deepGeometry,
+                          deviation::SurfaceDeviationPort* surfaceDeviation,
+                          feature::FeatureRecognitionPort* featureRecognition,
+                          std::size_t cacheBudgetBytes = 256U * 1024U * 1024U) noexcept;
+
     [[nodiscard]] ComparisonResult compare(
         const ComparisonRequest& request) noexcept;
 
@@ -92,6 +99,7 @@ private:
     import::StepImportPort& importer_;
     deep::DeepGeometryPort& deepGeometry_;
     deviation::SurfaceDeviationPort* surfaceDeviation_{};
+    feature::FeatureRecognitionPort* featureRecognition_{};
     cache::MemoryBudgetCache<ComparisonResult> cache_;
 };
 

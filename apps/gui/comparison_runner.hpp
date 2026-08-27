@@ -10,6 +10,7 @@
 #include <stepcompare/deep/occt_deep_geometry_engine.hpp>
 #include <stepcompare/deviation/occt_surface_deviation_engine.hpp>
 #include <stepcompare/import/occt_step_importer.hpp>
+#include <stepcompare/feature/occt_feature_recognizer.hpp>
 
 namespace stepcompare::gui {
 
@@ -37,6 +38,7 @@ private:
     stepcompare::import::OcctStepImporter importer_;
     stepcompare::deep::OcctDeepGeometryEngine deepGeometry_;
     stepcompare::deviation::OcctSurfaceDeviationEngine surfaceDeviation_;
+    stepcompare::feature::OcctFeatureRecognizer featureRecognition_;
     stepcompare::application::ComparisonCoordinator coordinator_;
 };
 

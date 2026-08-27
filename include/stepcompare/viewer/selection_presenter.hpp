@@ -18,6 +18,7 @@ enum class ComponentChangeKind {
     Rotated,
     Added,
     Missing,
+    Ambiguous,
 };
 
 enum class ComponentHighlight {
@@ -53,7 +54,7 @@ public:
     [[nodiscard]] const std::vector<ResultRowSnapshot>& rows() const noexcept;
 
     void onViewerSelection(std::string_view stableId);
-    void onRowSelection(std::string_view stableId);
+    void onRowSelection(std::string_view stableId, bool fitSelection = true);
     void clearSelection() noexcept;
 
     [[nodiscard]] const std::optional<StableSelectionId>& selectedId() const noexcept;

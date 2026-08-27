@@ -31,6 +31,10 @@ CameraOrientation ViewerStateModel::orientation() const noexcept {
     return orientation_;
 }
 
+PresentationMode ViewerStateModel::presentationMode() const noexcept {
+    return presentationMode_;
+}
+
 const std::optional<StableSelectionId>& ViewerStateModel::selection() const noexcept {
     return selection_;
 }
@@ -45,6 +49,10 @@ void ViewerStateModel::setCoordinates(const CoordinateMode coordinates) noexcept
 
 void ViewerStateModel::setOrientation(const CameraOrientation orientation) noexcept {
     orientation_ = orientation;
+}
+
+void ViewerStateModel::setPresentationMode(const PresentationMode mode) noexcept {
+    presentationMode_ = mode;
 }
 
 void ViewerStateModel::select(StableSelectionId stableId) {
@@ -93,6 +101,22 @@ std::string_view toString(const SceneLayer layer) noexcept {
 
 std::string_view toString(const CoordinateMode coordinates) noexcept {
     return coordinates == CoordinateMode::Absolute ? "ABSOLUTE" : "ALIGNED";
+}
+
+std::string_view toString(const PresentationMode mode) noexcept {
+    switch (mode) {
+        case PresentationMode::Shaded:
+            return "SHADED";
+        case PresentationMode::ShadedWithEdges:
+            return "SHADED + EDGES";
+        case PresentationMode::Wireframe:
+            return "WIREFRAME";
+        case PresentationMode::TransparentXRay:
+            return "TRANSPARENT / X-RAY";
+        case PresentationMode::Section:
+            return "SECTION VIEW";
+    }
+    return "SHADED + EDGES";
 }
 
 }  // namespace stepcompare::viewer

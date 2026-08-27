@@ -25,6 +25,7 @@ class PreviewStatusWidget;
 class StepPreviewLoader;
 class StepPreviewSceneAdapter;
 class ComparisonRunner;
+class ComparisonResultsPanel;
 struct PreviewJobResult;
 
 class MainWindow final : public QMainWindow {
@@ -49,6 +50,7 @@ private:
     stepcompare::viewer::ViewerStateModel viewerState_;
     stepcompare::viewer::OcctViewerWidget* viewer_{};
     ComponentTreePanel* componentTree_{};
+    ComparisonResultsPanel* comparisonResults_{};
     QLabel* coordinateBanner_{};
     QLabel* comparisonSummary_{};
     PreviewStatusWidget* previewStatus_{};

@@ -7,6 +7,7 @@
 #include <stepcompare/deep/occt_deep_geometry_engine.hpp>
 #include <stepcompare/deviation/occt_surface_deviation_engine.hpp>
 #include <stepcompare/import/occt_step_importer.hpp>
+#include <stepcompare/feature/occt_feature_recognizer.hpp>
 #include <stepcompare/reporting/writers.hpp>
 #endif
 
@@ -114,8 +115,9 @@ int run(std::span<const std::string_view> arguments) {
     stepcompare::import::OcctStepImporter importer;
     stepcompare::deep::OcctDeepGeometryEngine deepGeometry;
     stepcompare::deviation::OcctSurfaceDeviationEngine surfaceDeviation;
+    stepcompare::feature::OcctFeatureRecognizer featureRecognition;
     stepcompare::application::ComparisonCoordinator coordinator(
-        importer, deepGeometry, &surfaceDeviation);
+        importer, deepGeometry, &surfaceDeviation, &featureRecognition);
 
     stepcompare::application::ComparisonRequest request;
     request.inputAUtf8 = asUtf8(parsed.options->inputAUtf8);

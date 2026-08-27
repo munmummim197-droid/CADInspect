@@ -3,6 +3,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QMainWindow>
+#include <QComboBox>
 #include <QToolBar>
 
 namespace stepcompare::gui {
@@ -14,6 +15,7 @@ ViewerActions::ViewerActions(QMainWindow& window,
                              CommandHandler saveJsonHandler,
                              CommandHandler saveCsvHandler,
                              std::function<void(bool)> heatmapHandler,
+                             PresentationHandler presentationHandler,
                              LayerHandler layerHandler,
                              CoordinatesHandler coordinatesHandler,
                              OrientationHandler orientationHandler,
@@ -50,6 +52,33 @@ ViewerActions::ViewerActions(QMainWindow& window,
             this,
             [handler = std::move(heatmapHandler)](const bool enabled) {
                 handler(enabled);
+            });
+    toolbar_->addSeparator();
+
+    auto* presentationCombo = new QComboBox(toolbar_);
+    presentationCombo->setObjectName(QStringLiteral("viewerPresentationMode"));
+    presentationCombo->addItem(QObject::tr("Shaded"),
+                               static_cast<int>(stepcompare::viewer::PresentationMode::Shaded));
+    presentationCombo->addItem(
+        QObject::tr("Shaded + Edges"),
+        static_cast<int>(stepcompare::viewer::PresentationMode::ShadedWithEdges));
+    presentationCombo->addItem(
+        QObject::tr("Wireframe"),
+        static_cast<int>(stepcompare::viewer::PresentationMode::Wireframe));
+    presentationCombo->addItem(
+        QObject::tr("Transparent/X-Ray"),
+        static_cast<int>(stepcompare::viewer::PresentationMode::TransparentXRay));
+    presentationCombo->addItem(
+        QObject::tr("Section View"),
+        static_cast<int>(stepcompare::viewer::PresentationMode::Section));
+    presentationCombo->setCurrentIndex(1);
+    toolbar_->addWidget(presentationCombo);
+    connect(presentationCombo,
+            &QComboBox::currentIndexChanged,
+            this,
+            [handler = std::move(presentationHandler), presentationCombo](int index) {
+                handler(static_cast<stepcompare::viewer::PresentationMode>(
+                    presentationCombo->itemData(index).toInt()));
             });
     toolbar_->addSeparator();
 

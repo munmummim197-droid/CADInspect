@@ -10,12 +10,15 @@
 #include <stepcompare/import/step_import_port.hpp>
 #include <stepcompare/viewer/preview_load_state.hpp>
 
+#include "preview_quality.hpp"
+
 namespace stepcompare::gui {
 
 struct PreviewJobResult final {
     std::uint64_t generation{};
     stepcompare::viewer::ModelSide side{stepcompare::viewer::ModelSide::A};
     stepcompare::import::StepImportResult importResult;
+    PreviewMeshSummary meshSummary{};
 };
 
 class StepPreviewLoader final : public QObject {

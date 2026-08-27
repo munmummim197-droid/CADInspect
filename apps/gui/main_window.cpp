@@ -2,6 +2,8 @@
 
 #include "component_tree_panel.hpp"
 #include "comparison_runner.hpp"
+#include "comparison_readability_model.hpp"
+#include "comparison_results_panel.hpp"
 #include "preview_status_widget.hpp"
 #include "step_preview_loader.hpp"
 #include "step_preview_scene_adapter.hpp"
@@ -27,33 +29,34 @@
 namespace stepcompare::gui {
 namespace {
 
-stepcompare::viewer::ComponentChangeKind changeKind(
-    const stepcompare::reporting::ComponentRow& component) {
-    using stepcompare::viewer::ComponentChangeKind;
-    if (component.idA.empty()) {
-        return ComponentChangeKind::Added;
-    }
-    if (component.idB.empty()) {
-        return ComponentChangeKind::Missing;
-    }
-    if (component.geometryStatus == "DIFFERENT_PROVEN") {
-        return ComponentChangeKind::GeometryChanged;
-    }
-    if (component.positionStatus == "MOVED" ||
-        component.positionStatus == "MOVED_AND_ROTATED") {
-        return ComponentChangeKind::Moved;
-    }
-    if (component.positionStatus == "ROTATED") {
-        return ComponentChangeKind::Rotated;
-    }
-    return ComponentChangeKind::Unchanged;
-}
-
 std::string previewStableId(const stepcompare::viewer::ModelSide side,
                             const std::string& nodeId) {
     return side == stepcompare::viewer::ModelSide::A
                ? "preview/A/" + nodeId
                : "preview/B/" + nodeId;
+}
+
+QString summaryStyle(const OverallDisplayKind kind) {
+    switch (kind) {
+        case OverallDisplayKind::Same:
+            return QStringLiteral(
+                "QLabel { background:#e2f4e8; color:#155d34; font-weight:700; "
+                "padding:6px; border-bottom:2px solid #4a9b69; }");
+        case OverallDisplayKind::SameGeometryDifferentPosition:
+        case OverallDisplayKind::GeometryChanged:
+            return QStringLiteral(
+                "QLabel { background:#fff0ec; color:#8f291b; font-weight:700; "
+                "padding:6px; border-bottom:2px solid #c95c49; }");
+        case OverallDisplayKind::Ambiguous:
+            return QStringLiteral(
+                "QLabel { background:#fff6d9; color:#795000; font-weight:700; "
+                "padding:6px; border-bottom:2px solid #c4931f; }");
+        case OverallDisplayKind::Error:
+            return QStringLiteral(
+                "QLabel { background:#f5e7ea; color:#7e1529; font-weight:700; "
+                "padding:6px; border-bottom:2px solid #a92943; }");
+    }
+    return {};
 }
 
 }  // namespace
@@ -73,9 +76,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     coordinateBanner_->setStyleSheet(
         QStringLiteral("QLabel { background: #18324a; color: white; font-weight: 700; }"));
     layout->addWidget(coordinateBanner_);
-    comparisonSummary_ = new QLabel(tr("No canonical comparison result"), central);
+    comparisonSummary_ = new QLabel(tr("CHƯA CÓ KẾT QUẢ SO SÁNH"), central);
     comparisonSummary_->setAlignment(Qt::AlignCenter);
-    comparisonSummary_->setMinimumHeight(28);
+    comparisonSummary_->setMinimumHeight(42);
+    comparisonSummary_->setWordWrap(true);
     comparisonSummary_->setStyleSheet(QStringLiteral(
         "QLabel { background: #eef3f7; color: #182532; font-weight: 600; }"));
     layout->addWidget(comparisonSummary_);
@@ -89,7 +93,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         },
         central);
     layout->addWidget(previewStatus_);
-    auto* splitter = new QSplitter(Qt::Horizontal, central);
+    auto* workspaceSplitter = new QSplitter(Qt::Vertical, central);
+    auto* splitter = new QSplitter(Qt::Horizontal, workspaceSplitter);
     // OcctViewerWidget owns a native HWND. Construct it with its final native
     // parent so OCCT does not retain geometry from the pre-splitter parent.
     componentTree_ = new ComponentTreePanel(splitter);
@@ -99,7 +104,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({320, 960});
-    layout->addWidget(splitter, 1);
+    comparisonResults_ = new ComparisonResultsPanel(workspaceSplitter);
+    workspaceSplitter->addWidget(splitter);
+    workspaceSplitter->addWidget(comparisonResults_);
+    workspaceSplitter->setStretchFactor(0, 3);
+    workspaceSplitter->setStretchFactor(1, 2);
+    workspaceSplitter->setSizes({470, 300});
+    layout->addWidget(workspaceSplitter, 1);
     setCentralWidget(central);
 
     actions_ = std::make_unique<ViewerActions>(
@@ -111,10 +122,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         [this] { saveCanonicalReport(false); },
         [this](const bool enabled) {
             viewer_->setDeviationColoringEnabled(enabled);
+            comparisonResults_->setHeatmapState(
+                viewer_->deviationColoringEnabled(),
+                comparisonResult_ && comparisonResult_->report.deepDeviation.available);
             statusBar()->showMessage(
                 enabled && !viewer_->deviationColoringEnabled()
                     ? tr("Heatmap unavailable: no validated deviation evidence")
                     : enabled ? tr("Heatmap enabled") : tr("Heatmap disabled"));
+        },
+        [this](const auto presentation) {
+            viewerState_.setPresentationMode(presentation);
+            applyViewerState();
+            statusBar()->showMessage(
+                tr("Chế độ hiển thị: %1")
+                    .arg(QString::fromLatin1(
+                        stepcompare::viewer::toString(presentation).data())));
         },
         [this](const auto layer) {
             viewerState_.setLayer(layer);
@@ -146,15 +168,41 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         this);
     selectionPresenter_ =
         std::make_unique<stepcompare::viewer::ViewerTreeSelectionPresenter>(
-            [this](const auto& stableId) { componentTree_->selectStableId(stableId); },
+            [this](const auto& stableId) {
+                componentTree_->selectStableId(stableId);
+                comparisonResults_->selectStableId(stableId);
+            },
             [this](const auto& request) {
                 if (request.highlightSelection) {
                     viewer_->selectStableId(request.stableId, request.fitSelection);
                 }
             });
     componentTree_->setSelectionHandler([this](std::string stableId) {
+        comparisonResults_->selectStableId(
+            stepcompare::viewer::StableSelectionId{stableId});
         selectionPresenter_->onRowSelection(stableId);
     });
+    comparisonResults_->setSelectionHandler(
+        [this](std::string stableId, const bool locate) {
+            const stepcompare::viewer::StableSelectionId selection{stableId};
+            componentTree_->selectStableId(selection);
+            selectionPresenter_->onRowSelection(stableId, locate);
+            statusBar()->showMessage(
+                locate ? tr("Đã locate, zoom và highlight linh kiện")
+                       : tr("Đã đồng bộ linh kiện giữa bảng, cây và 3D Viewer"));
+        });
+    comparisonResults_->setFeatureSelectionHandler(
+        [this](std::string ownerStableId,
+               std::vector<std::uint32_t> faceIndices,
+               const bool locate) {
+            const stepcompare::viewer::StableSelectionId owner{ownerStableId};
+            componentTree_->selectStableId(owner);
+            viewer_->selectFeature(owner, faceIndices, locate);
+            statusBar()->showMessage(
+                locate
+                    ? tr("Đã locate, zoom và highlight feature trong 3D Viewer")
+                    : tr("Đã đồng bộ feature, part/assembly tree và 3D Viewer"));
+        });
     viewer_->setSelectionChangedHandler([this](std::string stableId) {
         selectionPresenter_->onViewerSelection(stableId);
         statusBar()->showMessage(
@@ -184,7 +232,10 @@ void MainWindow::openStep(const stepcompare::viewer::ModelSide side) {
         return;
     }
     comparisonResult_.reset();
-    comparisonSummary_->setText(tr("Canonical result invalidated by new input"));
+    comparisonSummary_->setText(tr("KẾT QUẢ ĐÃ MẤT HIỆU LỰC DO INPUT MỚI"));
+    comparisonSummary_->setStyleSheet(QStringLiteral(
+        "QLabel { background:#eef3f7; color:#182532; font-weight:700; padding:6px; }"));
+    comparisonResults_->clearReport();
     viewer_->clearDeviationColors();
     const QByteArray utf8 = fileName.toUtf8();
     std::u8string sourcePath(
@@ -199,6 +250,7 @@ void MainWindow::acceptPreviewResult(PreviewJobResult result) {
     const auto sourcePath = result.importResult.model.sourcePathUtf8;
     auto rows = previewSceneAdapter_->display(result.importResult.model,
                                               result.side,
+                                              result.meshSummary.policy,
                                               *viewer_);
     if (result.side == stepcompare::viewer::ModelSide::A) {
         inputAUtf8_ = sourcePath;
@@ -208,6 +260,13 @@ void MainWindow::acceptPreviewResult(PreviewJobResult result) {
         previewRowsB_ = std::move(rows);
     }
     refreshPreviewRows();
+    statusBar()->showMessage(
+        tr("Preview %1: %2 prototype mesh, %3 occurrence reuse, %4 triangles")
+            .arg(QString::fromLatin1(
+                previewQualityTierName(result.meshSummary.policy.tier)))
+            .arg(result.meshSummary.meshedPrototypeCount)
+            .arg(result.meshSummary.reusedOccurrenceCount)
+            .arg(result.meshSummary.triangleCount));
     if (!inputAUtf8_.empty() && !inputBUtf8_.empty()) {
         startComparison();
     }
@@ -258,28 +317,21 @@ void MainWindow::acceptComparisonResult(
     stepcompare::application::ComparisonResult result) {
     comparisonResult_ = std::move(result);
     const auto& report = comparisonResult_->report;
-    QStringList reasons;
-    for (const auto& reason : report.verdict.reasons) {
-        reasons.push_back(QString::fromStdString(reason));
-    }
-    const auto metric = [&report](const double value) {
-        return report.deepDeviation.available ? QString::number(value, 'g', 6)
-                                              : QStringLiteral("N/A");
-    };
+    const auto presentation = presentOverallVerdict(report);
     comparisonSummary_->setText(
-        tr("%1 — %2 | deviation max/mean/RMS: %3 / %4 / %5 mm | cache: %6")
-            .arg(QString::fromStdString(report.verdict.decision))
-            .arg(reasons.join(QStringLiteral(", ")))
-            .arg(metric(report.deepDeviation.maximumMm))
-            .arg(metric(report.deepDeviation.meanMm))
-            .arg(metric(report.deepDeviation.rmsMm))
-            .arg(report.cache.hit ? tr("HIT") : tr("MISS")));
+        tr("%1  |  %2  |  Cache: %3")
+            .arg(presentation.title, presentation.detail,
+                 report.cache.hit ? tr("HIT") : tr("MISS")));
+    comparisonSummary_->setStyleSheet(summaryStyle(presentation.kind));
+    comparisonResults_->setReport(report);
     previewStatus_->setOperationStatus(
         tr("Canonical comparison %1").arg(
             QString::fromStdString(report.execution.status)),
         100,
         false);
     applyCanonicalRowsAndHeatmap();
+    comparisonResults_->setHeatmapState(
+        viewer_->deviationColoringEnabled(), report.deepDeviation.available);
     statusBar()->showMessage(tr("Canonical comparison result published"));
 }
 
@@ -299,7 +351,7 @@ void MainWindow::applyCanonicalRowsAndHeatmap() {
 
     std::vector<stepcompare::viewer::DeviationColorAssignment> deviations;
     for (const auto& component : comparisonResult_->report.components) {
-        const auto change = changeKind(component);
+        const auto change = componentChangeKind(component);
         for (const auto& [side, nodeId] : {
                  std::pair{stepcompare::viewer::ModelSide::A, component.idA},
                  std::pair{stepcompare::viewer::ModelSide::B, component.idB}}) {

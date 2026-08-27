@@ -33,7 +33,8 @@ public:
                       ModelSide side,
                       StableSelectionId stableId,
                       bool differs = false,
-                      bool refresh = true);
+                      bool refresh = true,
+                      bool drawFeatureEdges = true);
     // Completes a batch of displayShape(..., refresh=false) calls with one
     // linear presentation refresh instead of an O(n^2) refresh per shape.
     void refreshPresentations();
@@ -62,6 +63,9 @@ public:
 
     void applyState(const ViewerStateModel& state);
     void selectStableId(const StableSelectionId& stableId, bool fitSelection);
+    void selectFeature(const StableSelectionId& ownerStableId,
+                       std::span<const std::uint32_t> faceIndices,
+                       bool fitSelection);
     void clearSelection();
     void setSelectionChangedHandler(
         std::function<void(std::string)> handler);

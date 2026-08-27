@@ -64,6 +64,21 @@ void rowClickSelectsFitsAndHighlightsViewer() {
     expect(rowCommands == 0, "row click must not echo a row command");
 }
 
+void singleRowSelectionCanHighlightWithoutZoom() {
+    using namespace stepcompare::viewer;
+    std::optional<ViewerSelectionRequest> request;
+    ViewerTreeSelectionPresenter presenter(
+        {}, [&](const ViewerSelectionRequest& command) { request = command; });
+    presenter.publishRows(rows());
+
+    presenter.onRowSelection("root/moved", false);
+
+    expect(request && !request->fitSelection,
+           "single table selection must be able to highlight without zoom");
+    expect(request && request->highlightSelection,
+           "single table selection must still highlight the viewer object");
+}
+
 void changedHighlightIsPersistentAndSelectionAware() {
     using namespace stepcompare::viewer;
     ViewerTreeSelectionPresenter presenter({}, {});
@@ -158,6 +173,7 @@ void assemblyHierarchyMustReferenceStableAcyclicParents() {
 int main() {
     viewerClickSelectsResultRow();
     rowClickSelectsFitsAndHighlightsViewer();
+    singleRowSelectionCanHighlightWithoutZoom();
     changedHighlightIsPersistentAndSelectionAware();
     unknownAndDuplicateIdsFailClosed();
     assemblyHierarchyMustReferenceStableAcyclicParents();

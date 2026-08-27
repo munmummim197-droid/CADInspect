@@ -60,7 +60,8 @@ void ViewerTreeSelectionPresenter::onViewerSelection(const std::string_view stab
     }
 }
 
-void ViewerTreeSelectionPresenter::onRowSelection(const std::string_view stableId) {
+void ViewerTreeSelectionPresenter::onRowSelection(const std::string_view stableId,
+                                                  const bool fitSelection) {
     const auto* row = find(stableId);
     if (row == nullptr) {
         return;
@@ -68,7 +69,7 @@ void ViewerTreeSelectionPresenter::onRowSelection(const std::string_view stableI
     selectedId_ = row->stableId;
     if (viewerSelectionHandler_) {
         viewerSelectionHandler_({.stableId = row->stableId,
-                                 .fitSelection = true,
+                                 .fitSelection = fitSelection,
                                  .highlightSelection = true});
     }
 }
@@ -134,6 +135,8 @@ std::string_view toString(const ComponentChangeKind change) noexcept {
             return "NEW";
         case ComponentChangeKind::Missing:
             return "MISSING";
+        case ComponentChangeKind::Ambiguous:
+            return "AMBIGUOUS";
     }
     return "UNKNOWN";
 }

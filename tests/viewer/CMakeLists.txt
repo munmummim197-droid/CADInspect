@@ -66,3 +66,41 @@ target_link_libraries(stepcompare_viewer_step_preview_model_tests
 
 add_test(NAME stepcompare.viewer.step_preview_model
     COMMAND stepcompare_viewer_step_preview_model_tests)
+
+add_executable(stepcompare_viewer_comparison_readability_tests
+    comparison_readability_tests.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui/comparison_readability_model.cpp")
+
+target_include_directories(stepcompare_viewer_comparison_readability_tests
+    PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui")
+
+target_link_libraries(stepcompare_viewer_comparison_readability_tests
+    PRIVATE
+        StepCompare::viewer
+        Qt6::Core
+        Qt6::Gui)
+
+add_test(NAME stepcompare.viewer.comparison_readability
+    COMMAND stepcompare_viewer_comparison_readability_tests)
+
+add_executable(stepcompare_viewer_preview_quality_tests
+    preview_quality_tests.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui/preview_quality.cpp")
+
+target_include_directories(stepcompare_viewer_preview_quality_tests
+    PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../../apps/gui"
+        "${CMAKE_CURRENT_LIST_DIR}/../../src")
+
+target_link_libraries(stepcompare_viewer_preview_quality_tests
+    PRIVATE
+        StepCompare::viewer
+        StepCompare::step_import_occt
+        TKMesh
+        TKTopAlgo
+        TKPrim
+        TKBRep)
+
+add_test(NAME stepcompare.viewer.preview_quality
+    COMMAND stepcompare_viewer_preview_quality_tests)

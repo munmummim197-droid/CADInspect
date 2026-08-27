@@ -5,6 +5,7 @@
 #include "stepcompare/domain/fast_check.hpp"
 #include "stepcompare/domain/placement.hpp"
 #include "stepcompare/cache/cache_key.hpp"
+#include "feature_evidence.hpp"
 
 #include <algorithm>
 #include <array>
@@ -881,7 +882,8 @@ bool runByteIdenticalProof(const AssemblyIndex& indexA,
 ComparisonResult compareImpl(const ComparisonRequest& request,
                              import::StepImportPort& importer,
                              deep::DeepGeometryPort& deepGeometry,
-                             deviation::SurfaceDeviationPort* surfaceDeviation) {
+                             deviation::SurfaceDeviationPort* surfaceDeviation,
+                             feature::FeatureRecognitionPort* featureRecognition) {
     ComparisonResult result;
     initializeReport(result.report, request);
 
@@ -1016,6 +1018,29 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
         return cancelledResult(request, std::move(result.report));
     }
 
+    if (featureRecognition != nullptr && request.deep) {
+        if (request.cancellation.stop_requested()) {
+            return cancelledResult(request, std::move(result.report));
+        }
+        const auto featureStarted = Clock::now();
+        const auto featureStatus = appendFeatureEvidence(*indexedA.index,
+                                                         *indexedB.index,
+                                                         request.tolerances,
+                                                         deepGeometry,
+                                                         *featureRecognition,
+                                                         exactIdentityProven,
+                                                         request.cancellation,
+                                                         result.report);
+        appendTiming(result.report, "feature_evidence", featureStarted);
+        if (featureStatus == FeatureEvidenceStatus::Cancelled ||
+            request.cancellation.stop_requested()) {
+            return cancelledResult(request, std::move(result.report));
+        }
+    }
+
+    if (request.cancellation.stop_requested()) {
+        return cancelledResult(request, std::move(result.report));
+    }
     evidence.deepCheckFailed = deepFailed || deviationFailed;
     result.verdict = domain::reduceVerdict(evidence);
     result.status = (deepFailed || deviationFailed)
@@ -1030,6 +1055,9 @@ ComparisonResult compareImpl(const ComparisonRequest& request,
         result.diagnostics.push_back({
             ComparisonDiagnosticCode::SurfaceDeviationFailed,
             "Surface deviation evidence was unavailable or failed; PASS is forbidden"});
+    }
+    if (request.cancellation.stop_requested()) {
+        return cancelledResult(request, std::move(result.report));
     }
     applyVerdict(result.report, result.verdict);
     result.report.execution.status =
@@ -1083,6 +1111,7 @@ std::size_t estimatedBytes(const ComparisonResult& result) noexcept {
     std::size_t bytes = sizeof(result);
     bytes += result.report.components.size() * sizeof(reporting::ComponentRow);
     bytes += result.report.timings.size() * sizeof(reporting::Timing);
+    bytes += result.report.features.size() * sizeof(reporting::FeatureRow);
     for (const auto& component : result.report.components) {
         bytes += component.idA.size() + component.idB.size() +
                  component.nameA.size() + component.nameB.size() +
@@ -1091,6 +1120,16 @@ std::size_t estimatedBytes(const ComparisonResult& result) noexcept {
     }
     for (const auto& diagnostic : result.diagnostics) {
         bytes += diagnostic.messageUtf8.size();
+    }
+    for (const auto& feature : result.report.features) {
+        bytes += feature.idA.size() + feature.idB.size() +
+                 feature.ownerComponentIdA.size() +
+                 feature.ownerComponentIdB.size() + feature.type.size() +
+                 feature.evidenceStatus.size() + feature.result.size() +
+                 feature.reason.size() + feature.profileA.size() +
+                 feature.profileB.size() +
+                 (feature.faceIndicesA.size() + feature.faceIndicesB.size()) *
+                     sizeof(std::uint32_t);
     }
     return bytes;
 }
@@ -1123,6 +1162,18 @@ ComparisonCoordinator::ComparisonCoordinator(
       surfaceDeviation_(surfaceDeviation),
       cache_(cacheBudgetBytes) {}
 
+ComparisonCoordinator::ComparisonCoordinator(
+    import::StepImportPort& importer,
+    deep::DeepGeometryPort& deepGeometry,
+    deviation::SurfaceDeviationPort* surfaceDeviation,
+    feature::FeatureRecognitionPort* featureRecognition,
+    const std::size_t cacheBudgetBytes) noexcept
+    : importer_(importer),
+      deepGeometry_(deepGeometry),
+      surfaceDeviation_(surfaceDeviation),
+      featureRecognition_(featureRecognition),
+      cache_(cacheBudgetBytes) {}
+
 ComparisonResult ComparisonCoordinator::compare(
     const ComparisonRequest& request) noexcept {
     try {
@@ -1150,7 +1201,11 @@ ComparisonResult ComparisonCoordinator::compare(
         }
 
         auto result =
-            compareImpl(request, importer_, deepGeometry_, surfaceDeviation_);
+            compareImpl(request,
+                        importer_,
+                        deepGeometry_,
+                        surfaceDeviation_,
+                        featureRecognition_);
         if (key && result.status == ComparisonRunStatus::Completed &&
             !request.cancellation.stop_requested()) {
             static_cast<void>(cache_.put(*key, result, estimatedBytes(result)));

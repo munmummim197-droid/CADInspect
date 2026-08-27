@@ -30,10 +30,20 @@ void runImport(QPromise<PreviewJobResult>& promise,
         return;
     }
 
-    promise.setProgressValueAndText(80, QStringLiteral("Preparing immutable 3D scene"));
+    promise.setProgressValueAndText(
+        80, QStringLiteral("Building adaptive preview tessellation"));
+    auto meshSummary = importResult.succeeded()
+                           ? preparePreviewMeshes(importResult.model)
+                           : PreviewMeshSummary{};
+    if (promise.isCanceled()) {
+        return;
+    }
+
+    promise.setProgressValueAndText(95, QStringLiteral("Preparing immutable 3D scene"));
     promise.addResult({.generation = generation,
                        .side = side,
-                       .importResult = std::move(importResult)});
+                       .importResult = std::move(importResult),
+                       .meshSummary = meshSummary});
     promise.setProgressValueAndText(100, QStringLiteral("Import job finished"));
 }
 

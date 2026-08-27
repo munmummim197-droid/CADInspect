@@ -26,6 +26,8 @@ void defaultContract() {
            "absolute coordinate banner must be explicit");
     expect(state.visibility().showA && state.visibility().showB,
            "overlay must show both models");
+    expect(state.presentationMode() == PresentationMode::ShadedWithEdges,
+           "default presentation must expose feature edges");
 }
 
 void allLayerModes() {
@@ -89,6 +91,25 @@ void cameraStateContract() {
     }
 }
 
+void presentationModesContract() {
+    using namespace stepcompare::viewer;
+    ViewerStateModel state;
+    constexpr PresentationMode modes[]{
+        PresentationMode::Shaded,
+        PresentationMode::ShadedWithEdges,
+        PresentationMode::Wireframe,
+        PresentationMode::TransparentXRay,
+        PresentationMode::Section,
+    };
+    for (const auto mode : modes) {
+        state.setPresentationMode(mode);
+        expect(state.presentationMode() == mode,
+               "every presentation mode must survive state round trip");
+        expect(toString(mode) != "",
+               "every presentation mode must have an explicit label");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -96,6 +117,7 @@ int main() {
     allLayerModes();
     coordinateAndSelectionContracts();
     cameraStateContract();
+    presentationModesContract();
 
     if (failures != 0) {
         std::cerr << failures << " viewer assertion(s) failed\n";

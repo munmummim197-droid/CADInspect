@@ -35,6 +35,7 @@ if(STEPCOMPARE_ENABLE_OCCT)
             StepCompare::cache
             StepCompare::deep_occt
             StepCompare::surface_deviation_occt
+            StepCompare::feature_occt
             StepCompare::reporting
             StepCompare::step_import_occt)
 endif()

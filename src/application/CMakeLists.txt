@@ -11,7 +11,9 @@ if(NOT TARGET stepcompare_project_options)
 endif()
 
 add_library(stepcompare_application STATIC
-    comparison_coordinator.cpp)
+    comparison_coordinator.cpp
+    feature_evidence.cpp
+    feature_evidence.hpp)
 
 add_library(StepCompare::application ALIAS stepcompare_application)
 

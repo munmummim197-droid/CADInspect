@@ -1,5 +1,7 @@
 #pragma once
 
+#include "preview_quality.hpp"
+
 #include <vector>
 
 #include <stepcompare/import/imported_model.hpp>
@@ -17,6 +19,7 @@ public:
     [[nodiscard]] std::vector<stepcompare::viewer::ResultRowSnapshot> display(
         const stepcompare::import::ImportedModel& model,
         stepcompare::viewer::ModelSide side,
+        const PreviewQualityPolicy& quality,
         stepcompare::viewer::OcctViewerWidget& viewer) const;
 };
 

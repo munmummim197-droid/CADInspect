@@ -19,6 +19,8 @@ public:
         std::function<void(stepcompare::viewer::SceneLayer)>;
     using CoordinatesHandler =
         std::function<void(stepcompare::viewer::CoordinateMode)>;
+    using PresentationHandler =
+        std::function<void(stepcompare::viewer::PresentationMode)>;
     using OrientationHandler =
         std::function<void(stepcompare::viewer::CameraOrientation)>;
     using CommandHandler = std::function<void()>;
@@ -30,6 +32,7 @@ public:
                   CommandHandler saveJsonHandler,
                   CommandHandler saveCsvHandler,
                   std::function<void(bool)> heatmapHandler,
+                  PresentationHandler presentationHandler,
                   LayerHandler layerHandler,
                   CoordinatesHandler coordinatesHandler,
                   OrientationHandler orientationHandler,

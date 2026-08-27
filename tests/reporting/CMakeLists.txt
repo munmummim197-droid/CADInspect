@@ -31,4 +31,10 @@ target_link_libraries(stepcompare_reporting_tests
     PRIVATE
         StepCompare::reporting)
 
+if(TARGET Qt6::Core)
+    target_link_libraries(stepcompare_reporting_tests PRIVATE Qt6::Core)
+    target_compile_definitions(stepcompare_reporting_tests
+        PRIVATE STEPCOMPARE_TEST_QT_JSON=1)
+endif()
+
 add_test(NAME stepcompare.reporting COMMAND stepcompare_reporting_tests)

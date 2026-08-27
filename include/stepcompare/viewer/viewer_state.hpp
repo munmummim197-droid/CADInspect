@@ -18,6 +18,14 @@ enum class CoordinateMode {
     Aligned,
 };
 
+enum class PresentationMode {
+    Shaded,
+    ShadedWithEdges,
+    Wireframe,
+    TransparentXRay,
+    Section,
+};
+
 enum class ModelSide {
     A,
     B,
@@ -58,11 +66,13 @@ public:
     [[nodiscard]] SceneLayer layer() const noexcept;
     [[nodiscard]] CoordinateMode coordinates() const noexcept;
     [[nodiscard]] CameraOrientation orientation() const noexcept;
+    [[nodiscard]] PresentationMode presentationMode() const noexcept;
     [[nodiscard]] const std::optional<StableSelectionId>& selection() const noexcept;
 
     void setLayer(SceneLayer layer) noexcept;
     void setCoordinates(CoordinateMode coordinates) noexcept;
     void setOrientation(CameraOrientation orientation) noexcept;
+    void setPresentationMode(PresentationMode mode) noexcept;
     void select(StableSelectionId stableId);
     void clearSelection() noexcept;
 
@@ -73,10 +83,12 @@ private:
     SceneLayer layer_{SceneLayer::Overlay};
     CoordinateMode coordinates_{CoordinateMode::Absolute};
     CameraOrientation orientation_{CameraOrientation::Isometric};
+    PresentationMode presentationMode_{PresentationMode::ShadedWithEdges};
     std::optional<StableSelectionId> selection_;
 };
 
 [[nodiscard]] std::string_view toString(SceneLayer layer) noexcept;
 [[nodiscard]] std::string_view toString(CoordinateMode coordinates) noexcept;
+[[nodiscard]] std::string_view toString(PresentationMode mode) noexcept;
 
 }  // namespace stepcompare::viewer

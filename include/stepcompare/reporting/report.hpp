@@ -117,8 +117,51 @@ struct ComponentRow final {
     double confidence{};
 };
 
+// Additive DEV V1 extension. Whole-model verdict semantics remain unchanged;
+// feature rows carry their own fail-closed evidence/result.
+struct FeatureRow final {
+    std::string idA{};
+    std::string idB{};
+    std::string ownerComponentIdA{};
+    std::string ownerComponentIdB{};
+    std::string type{};
+    std::string evidenceStatus{};
+    std::string result{};
+    std::string reason{};
+    Vector3 centerAAbsoluteMm{};
+    Vector3 centerBAbsoluteMm{};
+    Vector3 centerBAlignedMm{};
+    // Both conventions are explicit B - A.
+    Vector3 absoluteDifferenceBMinusAMm{};
+    Vector3 alignedDifferenceBMinusAMm{};
+    Vector3 axisA{};
+    Vector3 axisB{};
+    Vector3 axisBAligned{};
+    double primarySizeAMm{};
+    double primarySizeBMm{};
+    double secondarySizeAMm{};
+    double secondarySizeBMm{};
+    double depthAMm{};
+    double depthBMm{};
+    double radiusAMm{};
+    double radiusBMm{};
+    double angleADegrees{};
+    double angleBDegrees{};
+    std::string profileA{};
+    std::string profileB{};
+    bool throughA{};
+    bool throughB{};
+    double positionToleranceMm{};
+    double angularToleranceDegrees{};
+    double confidence{};
+    std::vector<std::uint32_t> faceIndicesA{};
+    std::vector<std::uint32_t> faceIndicesB{};
+};
+
 struct Report final {
-    std::string schemaVersion{"1.0"};
+    // 1.0: whole-model and assembly canonical result.
+    // 1.1: additive feature-level evidence; meanings of 1.0 fields are unchanged.
+    std::string schemaVersion{"1.1"};
     std::string softwareVersion{};
     std::string algorithmVersion{};
     InputIdentity inputA{};
@@ -133,6 +176,7 @@ struct Report final {
     std::vector<Timing> timings{};
     Verdict verdict{};
     std::vector<ComponentRow> components{};
+    std::vector<FeatureRow> features{};
 };
 
 }  // namespace stepcompare::reporting

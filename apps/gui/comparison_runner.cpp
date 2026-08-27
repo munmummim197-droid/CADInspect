@@ -50,7 +50,10 @@ ComparisonRunner::ComparisonRunner(StatusHandler statusHandler,
     : QObject(parent),
       statusHandler_(std::move(statusHandler)),
       resultHandler_(std::move(resultHandler)),
-      coordinator_(importer_, deepGeometry_, &surfaceDeviation_) {
+      coordinator_(importer_,
+                   deepGeometry_,
+                   &surfaceDeviation_,
+                   &featureRecognition_) {
     connect(&watcher_,
             &QFutureWatcher<stepcompare::application::ComparisonResult>::started,
             this,

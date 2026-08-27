@@ -283,9 +283,83 @@ void appendComponent(std::string& output, const ComponentRow& component) {
     output.push_back('}');
 }
 
+void appendUnsignedArray(std::string& output,
+                         const std::vector<std::uint32_t>& values) {
+    output.push_back('[');
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index != 0U) {
+            output.push_back(',');
+        }
+        output += unsignedNumber(values[index]);
+    }
+    output.push_back(']');
+}
+
+void appendFeature(std::string& output, const FeatureRow& feature) {
+    output.push_back('{');
+    appendStringMember(output, "idA", feature.idA);
+    appendStringMember(output, "idB", feature.idB);
+    appendStringMember(output, "ownerComponentIdA", feature.ownerComponentIdA);
+    appendStringMember(output, "ownerComponentIdB", feature.ownerComponentIdB);
+    appendStringMember(output, "type", feature.type);
+    appendStringMember(output, "evidenceStatus", feature.evidenceStatus);
+    appendStringMember(output, "result", feature.result);
+    appendStringMember(output, "reason", feature.reason);
+    appendKey(output, "centerAAbsoluteMm");
+    appendVector(output, feature.centerAAbsoluteMm);
+    output.push_back(',');
+    appendKey(output, "centerBAbsoluteMm");
+    appendVector(output, feature.centerBAbsoluteMm);
+    output.push_back(',');
+    appendKey(output, "centerBAlignedMm");
+    appendVector(output, feature.centerBAlignedMm);
+    output.push_back(',');
+    appendKey(output, "absoluteDifferenceBMinusAMm");
+    appendVector(output, feature.absoluteDifferenceBMinusAMm);
+    output.push_back(',');
+    appendKey(output, "alignedDifferenceBMinusAMm");
+    appendVector(output, feature.alignedDifferenceBMinusAMm);
+    output.push_back(',');
+    appendKey(output, "axisA");
+    appendVector(output, feature.axisA);
+    output.push_back(',');
+    appendKey(output, "axisB");
+    appendVector(output, feature.axisB);
+    output.push_back(',');
+    appendKey(output, "axisBAligned");
+    appendVector(output, feature.axisBAligned);
+    output.push_back(',');
+    appendNumberMember(output, "primarySizeAMm", feature.primarySizeAMm);
+    appendNumberMember(output, "primarySizeBMm", feature.primarySizeBMm);
+    appendNumberMember(output, "secondarySizeAMm", feature.secondarySizeAMm);
+    appendNumberMember(output, "secondarySizeBMm", feature.secondarySizeBMm);
+    appendNumberMember(output, "depthAMm", feature.depthAMm);
+    appendNumberMember(output, "depthBMm", feature.depthBMm);
+    appendNumberMember(output, "radiusAMm", feature.radiusAMm);
+    appendNumberMember(output, "radiusBMm", feature.radiusBMm);
+    appendNumberMember(output, "angleADegrees", feature.angleADegrees);
+    appendNumberMember(output, "angleBDegrees", feature.angleBDegrees);
+    appendStringMember(output, "profileA", feature.profileA);
+    appendStringMember(output, "profileB", feature.profileB);
+    appendBoolMember(output, "throughA", feature.throughA);
+    appendBoolMember(output, "throughB", feature.throughB);
+    appendNumberMember(output, "positionToleranceMm",
+                       feature.positionToleranceMm);
+    appendNumberMember(output, "angularToleranceDegrees",
+                       feature.angularToleranceDegrees);
+    appendNumberMember(output, "confidence", feature.confidence);
+    appendKey(output, "faceIndicesA");
+    appendUnsignedArray(output, feature.faceIndicesA);
+    output.push_back(',');
+    appendKey(output, "faceIndicesB");
+    appendUnsignedArray(output, feature.faceIndicesB);
+    output.push_back('}');
+}
+
 [[nodiscard]] std::string makeJson(const Report& report) {
     std::string output;
-    output.reserve(2048U + report.components.size() * 512U);
+    output.reserve(2048U + report.components.size() * 512U +
+                   report.features.size() * 1024U);
     output.push_back('{');
     appendStringMember(output, "schemaVersion", report.schemaVersion);
     appendStringMember(output, "softwareVersion", report.softwareVersion);
@@ -349,6 +423,15 @@ void appendComponent(std::string& output, const ComponentRow& component) {
             output.push_back(',');
         }
         appendComponent(output, report.components[index]);
+    }
+    output += "],";
+    appendKey(output, "features");
+    output.push_back('[');
+    for (std::size_t index = 0; index < report.features.size(); ++index) {
+        if (index != 0U) {
+            output.push_back(',');
+        }
+        appendFeature(output, report.features[index]);
     }
     output += "]}\n";
     return output;
@@ -584,6 +667,25 @@ void appendStatisticsMetadata(std::string& output, std::string_view prefix,
         fields[25] = number(component.boundingBoxSizeDifferenceMm.x);
         fields[26] = number(component.boundingBoxSizeDifferenceMm.y);
         fields[27] = number(component.boundingBoxSizeDifferenceMm.z);
+        appendCsvRecord(output, fields);
+    }
+    for (const auto& feature : report.features) {
+        std::vector<std::string> fields(csvColumnCount);
+        fields[0] = "feature";
+        fields[1] = feature.idA + "|" + feature.idB;
+        fields[2] = feature.type;
+        fields[3] = feature.ownerComponentIdA;
+        fields[4] = feature.ownerComponentIdB;
+        fields[7] = feature.result;
+        fields[8] = feature.evidenceStatus;
+        fields[9] = feature.reason;
+        fields[10] = number(feature.alignedDifferenceBMinusAMm.x);
+        fields[11] = number(feature.alignedDifferenceBMinusAMm.y);
+        fields[12] = number(feature.alignedDifferenceBMinusAMm.z);
+        fields[13] = number(feature.angleBDegrees - feature.angleADegrees);
+        fields[14] = number(feature.primarySizeBMm - feature.primarySizeAMm);
+        fields[15] = number(feature.depthBMm - feature.depthAMm);
+        fields[20] = number(feature.confidence);
         appendCsvRecord(output, fields);
     }
     return output;
