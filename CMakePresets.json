@@ -45,7 +45,9 @@
       "binaryDir": "${sourceDir}/build/vs-oss-release",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-release-ci",
+        "VCPKG_HOST_TRIPLET": "x64-windows-release-ci",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
         "VCPKG_MANIFEST_INSTALL": "ON",
         "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
         "STEPCOMPARE_BUILD_TESTS": "ON",

@@ -2,9 +2,13 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, ci/optimize-actions]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -12,14 +16,17 @@ permissions:
 jobs:
   release-test:
     runs-on: windows-2022
-    timeout-minutes: 120
+    timeout-minutes: 90
     env:
       VCPKG_ROOT: C:\vcpkg
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}\.cache\vcpkg-binary
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.cache\vcpkg-binary,readwrite
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Verify toolchain
+        id: toolchain
         shell: pwsh
         run: |
           if (-not (Test-Path -LiteralPath "$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake")) {
@@ -27,12 +34,38 @@ jobs:
           }
           cmake --version
           & "$env:VCPKG_ROOT\vcpkg.exe" version
+          $vcpkgCommit = git -C $env:VCPKG_ROOT rev-parse HEAD
+          "vcpkg_commit=$vcpkgCommit" >> $env:GITHUB_OUTPUT
+          "image_version=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-vs2022-${{ steps.toolchain.outputs.image_version }}-${{ steps.toolchain.outputs.vcpkg_commit }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/triplets/*.cmake') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-vs2022-${{ steps.toolchain.outputs.image_version }}-${{ steps.toolchain.outputs.vcpkg_commit }}-
+
+      - name: Prepare vcpkg binary cache
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_BINARY_CACHE | Out-Null
+          "vcpkg cache hit: ${{ steps.vcpkg-cache.outputs.cache-hit }}"
 
       - name: Configure Release
         run: cmake --preset oss-release
 
+      - name: Verify Release-only dependencies
+        shell: pwsh
+        run: |
+          $debugTree = Join-Path $env:GITHUB_WORKSPACE 'vcpkg_installed\x64-windows-release-ci\debug'
+          if (Test-Path -LiteralPath $debugTree) {
+            throw "Release CI unexpectedly installed Debug dependency artifacts: $debugTree"
+          }
+
       - name: Build Release
-        run: cmake --build --preset oss-release
+        run: cmake --build --preset oss-release --parallel
 
       - name: Test Release
         run: ctest --preset oss-release
