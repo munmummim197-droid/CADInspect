@@ -16,14 +16,14 @@ permissions:
 jobs:
   release-test:
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       VCPKG_ROOT: C:\vcpkg
       VCPKG_BINARY_CACHE: ${{ github.workspace }}\.cache\vcpkg-binary
       VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.cache\vcpkg-binary,readwrite
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify toolchain
         id: toolchain
@@ -40,7 +40,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-vs2022-${{ steps.toolchain.outputs.image_version }}-${{ steps.toolchain.outputs.vcpkg_commit }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/triplets/*.cmake') }}
