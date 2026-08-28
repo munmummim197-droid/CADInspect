@@ -35,11 +35,14 @@ add_executable(stepcompare_gui WIN32
 if(WIN32)
     target_sources(stepcompare_gui PRIVATE
         ../../resources/windows/stepcompare.rc)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/CADInspectWindowsVersion.cmake")
+    cadinspect_add_windows_version_resource(
+        stepcompare_gui "CADInspect" "CADInspect.exe" "CADInspect")
 endif()
 
 set_target_properties(stepcompare_gui PROPERTIES
     AUTORCC ON
-    OUTPUT_NAME StepCompare)
+    OUTPUT_NAME CADInspect)
 
 if(WIN32)
     function(stepcompare_deploy_qt_plugin plugin_target plugin_directory)

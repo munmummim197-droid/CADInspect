@@ -18,6 +18,13 @@ target_link_libraries(stepcompare_cli_contract
 add_executable(stepcompare_cli
     main.cpp)
 
+if(WIN32)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/CADInspectVersion.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/CADInspectWindowsVersion.cmake")
+    cadinspect_add_windows_version_resource(
+        stepcompare_cli "CADInspect CLI" "stepcompare-cli.exe" "stepcompare-cli")
+endif()
+
 set_target_properties(stepcompare_cli PROPERTIES
     OUTPUT_NAME "stepcompare-cli")
 

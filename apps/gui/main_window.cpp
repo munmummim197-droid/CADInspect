@@ -200,7 +200,7 @@ void applyOfficialWindowIcon(QWidget& window) {
             };
 
         setStringProperty(PKEY_AppUserModel_ID,
-                          L"AIHung.StepCompare.Desktop");
+                          L"CADInspect.Project.Desktop");
 
         std::array<wchar_t, 32768> executablePath{};
         const auto pathLength = GetModuleFileNameW(

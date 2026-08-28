@@ -1,10 +1,14 @@
 cmake_minimum_required(VERSION 3.28)
 
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/CADInspectVersion.cmake")
+
 project(
     StepCompare
-    VERSION 0.1.0
+    VERSION "${CADINSPECT_VERSION}"
     DESCRIPTION "Native Windows STEP geometry and assembly comparison"
     LANGUAGES CXX)
+
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/ValidateReleaseMetadata.cmake")
 
 option(STEPCOMPARE_BUILD_TESTS "Build StepCompare automated tests" ON)
 option(STEPCOMPARE_ENABLE_QT "Build the Qt desktop application" OFF)

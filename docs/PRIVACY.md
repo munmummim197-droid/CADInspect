@@ -1,6 +1,6 @@
 # Privacy policy
 
-This policy describes CADInspect runtime version `0.1.0-dev` as represented by
+This policy describes CADInspect runtime version `0.1.0` as represented by
 the current public source repository. It does not describe GitHub, SignPath,
 download sites, operating-system services, or other software used separately by
 the user.

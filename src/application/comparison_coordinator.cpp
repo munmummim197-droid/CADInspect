@@ -369,7 +369,7 @@ domain::PositionStatus positionStatus(bool moved, bool rotated) noexcept {
 
 void initializeReport(reporting::Report& report,
                       const ComparisonRequest& request) {
-    report.softwareVersion = "0.1.0-dev";
+    report.softwareVersion = STEPCOMPARE_SOFTWARE_VERSION;
     report.algorithmVersion = "dev-v1";
     report.inputA.pathUtf8 = utf8Bytes(request.inputAUtf8);
     report.inputB.pathUtf8 = utf8Bytes(request.inputBUtf8);

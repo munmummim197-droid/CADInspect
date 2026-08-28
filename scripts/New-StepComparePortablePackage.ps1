@@ -1,6 +1,11 @@
 [CmdletBinding()]
 param(
-    [switch] $FreshBuild
+    [switch] $FreshBuild,
+    [switch] $SkipBuild,
+    [ValidateSet('full-dev', 'oss-release')]
+    [string] $Preset = 'full-dev',
+    [string] $BuildDirectory = 'build\vs-full-dev',
+    [string] $Triplet = 'x64-windows'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,20 +20,29 @@ foreach ($candidate in @($staging, $destination)) {
     }
 }
 
-& (Join-Path $PSScriptRoot 'Invoke-StepCompareBuild.ps1') `
-    -Preset full-dev `
-    -Stage All `
-    -Configuration Release `
-    -Fresh:$FreshBuild
+if (-not $SkipBuild) {
+    & (Join-Path $PSScriptRoot 'Invoke-StepCompareBuild.ps1') `
+        -Preset $Preset `
+        -Stage All `
+        -Configuration Release `
+        -Fresh:$FreshBuild
+}
 
 if (Test-Path -LiteralPath $staging) {
     Remove-Item -LiteralPath $staging -Recurse -Force
 }
 New-Item -ItemType Directory -Path $staging | Out-Null
 
-$guiOutput = Join-Path $projectRoot 'build\vs-full-dev\apps\gui\Release'
-$cliOutput = Join-Path $projectRoot 'build\vs-full-dev\apps\cli\Release'
-$guiExecutable = Join-Path $guiOutput 'StepCompare.exe'
+$resolvedBuildDirectory = [IO.Path]::GetFullPath(
+    (Join-Path $projectRoot $BuildDirectory))
+if (-not $resolvedBuildDirectory.StartsWith(
+        $projectRoot + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Unsafe build directory: ${resolvedBuildDirectory}"
+}
+$guiOutput = Join-Path $resolvedBuildDirectory 'apps\gui\Release'
+$cliOutput = Join-Path $resolvedBuildDirectory 'apps\cli\Release'
+$guiExecutable = Join-Path $guiOutput 'CADInspect.exe'
 $cliExecutable = Join-Path $cliOutput 'stepcompare-cli.exe'
 foreach ($executable in @($guiExecutable, $cliExecutable)) {
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
@@ -36,15 +50,15 @@ foreach ($executable in @($guiExecutable, $cliExecutable)) {
     }
 }
 
-Get-ChildItem -LiteralPath $guiOutput -File |
-    Where-Object Extension -In @('.exe', '.dll') |
-    Copy-Item -Destination $staging
+Copy-Item -LiteralPath $guiExecutable -Destination $staging
+Get-ChildItem -LiteralPath $guiOutput -Filter '*.dll' -File |
+    Copy-Item -Destination $staging -Force
 Copy-Item -LiteralPath $cliExecutable -Destination $staging
 Get-ChildItem -LiteralPath $cliOutput -Filter '*.dll' -File |
     Copy-Item -Destination $staging -Force
 
 $windeployqt = Join-Path $projectRoot `
-    'vcpkg_installed\x64-windows\tools\Qt6\bin\windeployqt.exe'
+    "vcpkg_installed\${Triplet}\tools\Qt6\bin\windeployqt.exe"
 if (-not (Test-Path -LiteralPath $windeployqt -PathType Leaf)) {
     throw "Pinned windeployqt is missing: ${windeployqt}"
 }
@@ -54,7 +68,7 @@ if (-not (Test-Path -LiteralPath $windeployqt -PathType Leaf)) {
     --no-system-d3d-compiler `
     --no-opengl-sw `
     --dir $staging `
-    (Join-Path $staging 'StepCompare.exe')
+    (Join-Path $staging 'CADInspect.exe')
 $deploymentMode = 'windeployqt'
 if ($LASTEXITCODE -ne 0) {
     $deploymentMode = 'pinned-vcpkg-applocal-fallback'
@@ -64,7 +78,8 @@ if ($LASTEXITCODE -ne 0) {
 # The vcpkg applocal integration has already copied all linked Qt/OCCT DLLs.
 # Copy the minimal runtime plugins explicitly as a deterministic fallback for
 # restricted hosts where windeployqt cannot spawn qtpaths.
-$qtPluginRoot = Join-Path $projectRoot 'vcpkg_installed\x64-windows\Qt6\plugins'
+$qtPluginRoot = Join-Path $projectRoot `
+    "vcpkg_installed\${Triplet}\Qt6\plugins"
 $pluginFiles = @(
     'platforms\qwindows.dll',
     'imageformats\qgif.dll',
@@ -84,7 +99,7 @@ foreach ($relativePlugin in $pluginFiles) {
 
 $vsWhere = Join-Path ${env:ProgramFiles(x86)} `
     'Microsoft Visual Studio\Installer\vswhere.exe'
-$installationPath = & $vsWhere -latest -products Microsoft.VisualStudio.Product.BuildTools `
+$installationPath = & $vsWhere -latest -products * `
     -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 $redistRoot = Join-Path $installationPath 'VC\Redist\MSVC'
 $redistVersion = Get-ChildItem -LiteralPath $redistRoot -Directory |
@@ -94,7 +109,13 @@ $redistVersion = Get-ChildItem -LiteralPath $redistRoot -Directory |
 if (-not $redistVersion) {
     throw 'MSVC x64 redistributable directory was not found.'
 }
-$crtDirectory = Join-Path $redistVersion.FullName 'x64\Microsoft.VC145.CRT'
+$crtDirectory = Get-ChildItem -LiteralPath (Join-Path $redistVersion.FullName 'x64') `
+    -Directory -Filter 'Microsoft.VC*.CRT' |
+    Sort-Object Name -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+if (-not $crtDirectory) {
+    throw 'MSVC x64 CRT redistributable directory was not found.'
+}
 Get-ChildItem -LiteralPath $crtDirectory -Filter '*.dll' -File |
     Copy-Item -Destination $staging -Force
 
@@ -111,7 +132,7 @@ foreach ($notice in @($projectLicense, $thirdPartyNotices)) {
 
 $licenseDirectory = Join-Path $staging 'licenses'
 New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
-$vcpkgShare = Join-Path $projectRoot 'vcpkg_installed\x64-windows\share'
+$vcpkgShare = Join-Path $projectRoot "vcpkg_installed\${Triplet}\share"
 $dependencyNotices = @(Get-ChildItem -LiteralPath $vcpkgShare -Filter copyright `
     -File -Recurse)
 if ($dependencyNotices.Count -eq 0) {
@@ -124,7 +145,7 @@ foreach ($notice in $dependencyNotices) {
 }
 
 $required = @(
-    (Join-Path $staging 'StepCompare.exe'),
+    (Join-Path $staging 'CADInspect.exe'),
     (Join-Path $staging 'stepcompare-cli.exe'),
     (Join-Path $staging 'Qt6Core.dll'),
     (Join-Path $staging 'Qt6Gui.dll'),
@@ -175,7 +196,7 @@ $manifestJson = $manifestDocument | ConvertTo-Json -Depth 5
     FileCount = @($manifest).Count + 1
     TotalBytes = (($manifest | Measure-Object -Property SizeBytes -Sum).Sum +
         (Get-Item -LiteralPath $manifestPath).Length)
-    StepCompareSha256 = ($manifest | Where-Object Path -EQ 'StepCompare.exe').SHA256
+    CADInspectSha256 = ($manifest | Where-Object Path -EQ 'CADInspect.exe').SHA256
     CliSha256 = ($manifest | Where-Object Path -EQ 'stepcompare-cli.exe').SHA256
     ManifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }

@@ -28,7 +28,7 @@ separation must be documented before they participate in signing.
 Only artifacts built from source and build definitions owned by CADInspect may be
 submitted under a future CADInspect signing policy:
 
-- the GUI executable built as `StepCompare.exe` and installed as `CADInspect.exe`;
+- the GUI executable `CADInspect.exe`;
 - `stepcompare-cli.exe` when it is distributed as a project artifact;
 - any future CADInspect-owned DLL built from source in this repository; and
 - `CADInspect-Setup-x64-<version>.exe`, built from
@@ -62,10 +62,13 @@ repository. The tracked GitHub Actions workflow uses a GitHub-hosted Windows
 runner, a pinned vcpkg registry baseline, Release-only dependency triplet, build,
 automated tests, and a source-only policy check.
 
-Before SignPath integration, the trusted workflow still needs an explicit
-artifact packaging and handoff stage that binds each signing request to the
-origin commit and GitHub Actions run. No manually supplied or locally rebuilt
-binary may replace a workflow artifact after that boundary.
+The trusted workflow packages the exact project-owned unsigned PE files after
+the Release tests and binds the artifact name and manifest to the source commit
+and GitHub Actions run. It also builds an unsigned portable runtime and unsigned
+installer for release-readiness verification. No manually supplied or locally
+rebuilt binary may replace a workflow artifact after that boundary. The future
+signed flow still rebuilds the outer installer only after the owned inner PE
+files have completed their signing stage, as described in `releasing.md`.
 
 ## Release approval and integrity
 

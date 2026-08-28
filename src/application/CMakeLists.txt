@@ -10,6 +10,8 @@ if(NOT TARGET stepcompare_project_options)
     endif()
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/CADInspectVersion.cmake")
+
 add_library(stepcompare_application STATIC
     comparison_coordinator.cpp
     feature_evidence.cpp
@@ -28,3 +30,7 @@ target_link_libraries(stepcompare_application
         StepCompare::cache
         StepCompare::domain
         stepcompare_project_options)
+
+target_compile_definitions(stepcompare_application
+    PRIVATE
+        STEPCOMPARE_SOFTWARE_VERSION="${CADINSPECT_VERSION}")

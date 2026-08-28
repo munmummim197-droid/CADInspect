@@ -70,6 +70,38 @@ jobs:
       - name: Test Release
         run: ctest --preset oss-release
 
+      - name: Verify project PE metadata and unsigned status
+        shell: pwsh
+        run: |
+          $expected = @(
+            @{
+              Path = '.\build\vs-oss-release\apps\gui\Release\CADInspect.exe'
+              Description = 'CADInspect'
+              OriginalFilename = 'CADInspect.exe'
+            },
+            @{
+              Path = '.\build\vs-oss-release\apps\cli\Release\stepcompare-cli.exe'
+              Description = 'CADInspect CLI'
+              OriginalFilename = 'stepcompare-cli.exe'
+            }
+          )
+          foreach ($item in $expected) {
+            $file = Get-Item -LiteralPath $item.Path
+            $metadata = $file.VersionInfo
+            if ($metadata.FileDescription -ne $item.Description -or
+                $metadata.ProductName -ne 'CADInspect' -or
+                $metadata.FileVersion -ne '0.1.0.0' -or
+                $metadata.ProductVersion -ne '0.1.0' -or
+                $metadata.CompanyName -ne 'CADInspect Project' -or
+                $metadata.LegalCopyright -ne 'Copyright (c) 2026 CADInspect contributors' -or
+                $metadata.OriginalFilename -ne $item.OriginalFilename) {
+              throw "PE metadata mismatch: $($item.Path)"
+            }
+            if ((Get-AuthenticodeSignature -LiteralPath $file.FullName).Status -ne 'NotSigned') {
+              throw "Expected unsigned project PE: $($item.Path)"
+            }
+          }
+
       - name: Confirm source-only workspace policy
         shell: pwsh
         run: |
@@ -77,3 +109,57 @@ jobs:
           if (git ls-files | Select-String -Pattern '\.(exe|dll|pdb|msi|zip|7z)$') {
             throw "Generated binary/archive is tracked."
           }
+
+      - name: Package unsigned Release runtime
+        shell: pwsh
+        run: |
+          .\scripts\New-StepComparePortablePackage.ps1 `
+            -SkipBuild `
+            -Preset oss-release `
+            -BuildDirectory 'build\vs-oss-release' `
+            -Triplet 'x64-windows-release-ci'
+
+      - name: Build unsigned installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            throw "Pinned runner Inno Setup compiler is missing: $iscc"
+          }
+          & $iscc /Qp .\installer\CADInspect.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+          $installer = Get-Item -LiteralPath `
+            '.\release-installer\CADInspect-Setup-x64-0.1.0.exe'
+          if ($installer.VersionInfo.ProductName -ne 'CADInspect' -or
+              $installer.VersionInfo.FileVersion -ne '0.1.0.0' -or
+              $installer.VersionInfo.ProductVersion -ne '0.1.0' -or
+              $installer.VersionInfo.CompanyName -ne 'CADInspect Project' -or
+              $installer.VersionInfo.OriginalFilename -ne $installer.Name) {
+            throw 'Installer PE metadata mismatch.'
+          }
+          if ((Get-AuthenticodeSignature -LiteralPath $installer.FullName).Status -ne 'NotSigned') {
+            throw 'Expected unsigned installer before the future signing boundary.'
+          }
+
+      - name: Assemble commit-bound unsigned artifact
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $env:RUNNER_TEMP `
+            "cadinspect-0.1.0-unsigned-${{ github.sha }}"
+          .\scripts\New-CADInspectTrustedArtifact.ps1 `
+            -PackageRoot .\dist `
+            -InstallerPath .\release-installer\CADInspect-Setup-x64-0.1.0.exe `
+            -Destination $artifactRoot `
+            -CommitSha '${{ github.sha }}' `
+            -WorkflowRunId '${{ github.run_id }}'
+
+      - name: Upload commit-bound unsigned artifact
+        id: unsigned-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cadinspect-0.1.0-unsigned-${{ github.sha }}
+          path: ${{ runner.temp }}\cadinspect-0.1.0-unsigned-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14

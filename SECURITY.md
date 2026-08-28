@@ -22,6 +22,7 @@ isolated workstation for suspicious inputs.
 Canonical JSON/CSV reports contain full input paths, SHA-256 values and model
 metadata for traceability. Review or redact them before external sharing.
 
-Supported security fixes target the current `main` branch. Release artifacts are
-considered official only after their checksum and trusted Authenticode signature
-have been published and verified.
+Supported security fixes target the current `main` branch. An explicitly labelled
+unsigned eligibility release is not an official trusted release. Release artifacts
+are considered official and trusted only after their checksum and trusted
+Authenticode signature have been published and verified.

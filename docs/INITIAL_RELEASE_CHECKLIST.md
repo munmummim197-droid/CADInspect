@@ -73,9 +73,9 @@ The recommended eligibility release is a normal unsigned GitHub Release in the
 same package and installer form intended for future signing, after version and PE
 metadata blockers are resolved. It should be explicitly labelled
 `SIGNING STATUS: UNSIGNED` and include SHA-256 values and all notices.
-Under the current `SECURITY.md`, it must also be described as a non-official
-eligibility release until the Owner explicitly reconciles the official-release
-policy.
+Under `SECURITY.md`, it must also be described as a non-official eligibility
+release; only a checksum-published release with a verified trusted Authenticode
+signature qualifies as official and trusted.
 
 A GitHub pre-release reduces expectations but may not demonstrate that the
 project is already released in the final form SignPath Foundation expects. A

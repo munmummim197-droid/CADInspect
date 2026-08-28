@@ -262,6 +262,8 @@ void exactPartDeepPassTest() {
            "canonical report must carry max/mean/RMS deviation");
     expect(result.report.verdict.decision == "PASS",
            "canonical report must contain PASS");
+    expect(result.report.softwareVersion == "0.1.0",
+           "canonical report must use the release version");
     expect(result.report.components.size() == 1,
            "part comparison must emit one component row");
     expect(stepcompare::reporting::toJson(result.report).find(

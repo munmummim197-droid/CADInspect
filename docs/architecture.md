@@ -3,7 +3,7 @@
 ## Dependency direction
 
 ```text
-StepCompare.exe / stepcompare-cli.exe
+CADInspect.exe / stepcompare-cli.exe
                   |
                   v
              Application
@@ -110,4 +110,3 @@ CLI exit codes planned for DEV V1:
 5   processing/internal error
 130 cancelled
 ```
-

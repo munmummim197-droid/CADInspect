@@ -27,7 +27,7 @@ CADInspect hỗ trợ so sánh part và assembly, phân biệt thay đổi vị 
   Heatmap, Section View và isolate part pair.
 - Đồng bộ selection giữa assembly tree, bảng Part/Feature và 3D viewer.
 - Xuất báo cáo canonical JSON schema 1.1 và CSV an toàn khi mở bằng spreadsheet.
-- GUI `StepCompare.exe` và CLI `stepcompare-cli.exe`.
+- GUI `CADInspect.exe` và CLI `stepcompare-cli.exe`.
 
 STEP thường không chứa feature history gốc. Feature recognition của CADInspect
 dựa trên B-Rep/surface/topology và không cam kết khôi phục đầy đủ design intent.

@@ -17,14 +17,14 @@
 
 int main(int argc, char* argv[]) {
 #ifdef Q_OS_WIN
-    // Give every StepCompare top-level window one stable Windows taskbar
+    // Give every CADInspect top-level window one stable Windows taskbar
     // identity. This must be set before QApplication creates native windows.
     static_cast<void>(SetCurrentProcessExplicitAppUserModelID(
-        L"AIHung.StepCompare.Desktop"));
+        L"CADInspect.Project.Desktop"));
 #endif
 
     QApplication application(argc, argv);
-    QCoreApplication::setApplicationName(QStringLiteral("StepCompare"));
+    QCoreApplication::setApplicationName(QStringLiteral("CADInspect"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("CADInspect"));
     QCoreApplication::setOrganizationName(QStringLiteral("StepCompare"));
 

@@ -1,6 +1,6 @@
 {
   "name": "stepcompare",
-  "version-string": "0.1.0-dev",
+  "version-string": "0.1.0",
   "builtin-baseline": "f89a4a1da4e3176a8d1a14c1825b9b2f98e48843",
   "dependencies": [
     {
@@ -24,4 +24,3 @@
     }
   ]
 }
-

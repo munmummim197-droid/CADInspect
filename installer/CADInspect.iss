@@ -1,7 +1,9 @@
 #define AppName "CADInspect"
 #define AppVersion "0.1.0"
-#define AppPublisher "AIHung"
+#define AppPublisher "CADInspect Project"
+#define AppCopyright "Copyright (c) 2026 CADInspect contributors"
 #define AppExecutable "CADInspect.exe"
+#define InstallerFilename "CADInspect-Setup-x64-0.1.0.exe"
 #define SourcePackage "..\dist"
 
 [Setup]
@@ -10,6 +12,7 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
+AppCopyright={#AppCopyright}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -32,10 +35,14 @@ CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
 VersionInfoCompany={#AppPublisher}
+VersionInfoCopyright={#AppCopyright}
 VersionInfoDescription={#AppName} Setup
+VersionInfoOriginalFileName={#InstallerFilename}
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}.0
+VersionInfoProductTextVersion={#AppVersion}
 VersionInfoVersion={#AppVersion}.0
+VersionInfoTextVersion={#AppVersion}.0
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -46,9 +53,9 @@ Name: "desktopicon"; Description: "Tạo biểu tượng CADInspect ngoài màn 
 [Files]
 ; Release binaries are intentionally not committed. Build dist locally first.
 ; Authenticode signing is a publication gate documented in docs/releasing.md.
-Source: "{#SourcePackage}\StepCompare.exe"; DestDir: "{app}"; DestName: "{#AppExecutable}"; Flags: ignoreversion
+Source: "{#SourcePackage}\{#AppExecutable}"; DestDir: "{app}"; Flags: ignoreversion
 ; Runtime dependencies and license notices only. CLI, symbols and tests are excluded.
-Source: "{#SourcePackage}\*"; DestDir: "{app}"; Excludes: "StepCompare.exe,stepcompare-cli.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourcePackage}\*"; DestDir: "{app}"; Excludes: "CADInspect.exe,stepcompare-cli.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExecutable}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExecutable}"
