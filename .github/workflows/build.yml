@@ -132,11 +132,48 @@ jobs:
           }
           $installer = Get-Item -LiteralPath `
             '.\release-installer\CADInspect-Setup-x64-0.1.0.exe'
-          if ($installer.VersionInfo.ProductName -ne 'CADInspect' -or
-              $installer.VersionInfo.FileVersion -ne '0.1.0.0' -or
-              $installer.VersionInfo.ProductVersion -ne '0.1.0' -or
-              $installer.VersionInfo.CompanyName -ne 'CADInspect Project' -or
-              $installer.VersionInfo.OriginalFilename -ne $installer.Name) {
+          $expectedMetadata = [ordered]@{
+            ProductName = 'CADInspect'
+            FileVersion = '0.1.0.0'
+            ProductVersion = '0.1.0'
+            CompanyName = 'CADInspect Project'
+            OriginalFilename = $installer.Name
+          }
+          $metadataMismatches = @()
+          foreach ($field in $expectedMetadata.Keys) {
+            $actualRaw = $installer.VersionInfo.$field
+            $expectedRaw = $expectedMetadata[$field]
+            $actualText = if ($null -eq $actualRaw) { $null } else { [string]$actualRaw }
+            $expectedText = if ($null -eq $expectedRaw) { $null } else { [string]$expectedRaw }
+            $actualNormalized = if ($null -eq $actualText) { $null } else { $actualText.Trim() }
+            $expectedNormalized = if ($null -eq $expectedText) { $null } else { $expectedText.Trim() }
+            $matches = -not [string]::IsNullOrWhiteSpace($actualText) -and
+              -not [string]::IsNullOrWhiteSpace($expectedText) -and
+              [string]::Equals(
+                $actualNormalized,
+                $expectedNormalized,
+                [System.StringComparison]::Ordinal)
+            if (-not $matches) {
+              $metadataMismatches += [pscustomobject]@{
+                Field = $field
+                Expected = $expectedText
+                Actual = $actualText
+                ExpectedLength = if ($null -eq $expectedText) { '<null>' } else { $expectedText.Length }
+                ActualLength = if ($null -eq $actualText) { '<null>' } else { $actualText.Length }
+              }
+            }
+          }
+          if ($metadataMismatches.Count -gt 0) {
+            Write-Host 'Installer PE metadata mismatch:'
+            foreach ($mismatch in $metadataMismatches) {
+              $expectedDisplay = if ($null -eq $mismatch.Expected) { '<null>' } else { $mismatch.Expected }
+              $actualDisplay = if ($null -eq $mismatch.Actual) { '<null>' } else { $mismatch.Actual }
+              Write-Host "Field: $($mismatch.Field)"
+              Write-Host "Expected: [$expectedDisplay]"
+              Write-Host "Actual:   [$actualDisplay]"
+              Write-Host "ExpectedLength: $($mismatch.ExpectedLength)"
+              Write-Host "ActualLength: $($mismatch.ActualLength)"
+            }
             throw 'Installer PE metadata mismatch.'
           }
           if ((Get-AuthenticodeSignature -LiteralPath $installer.FullName).Status -ne 'NotSigned') {
