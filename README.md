@@ -112,11 +112,27 @@ Không chạy CADInspect với quyền cao hơn mức cần thiết. Xem
 Báo cáo canonical chứa đường dẫn đầy đủ, SHA-256 và metadata của input nhằm phục
 vụ truy vết. Hãy kiểm tra hoặc redaction trước khi chia sẻ report ra ngoài tổ chức.
 
+Xem [Privacy policy](docs/PRIVACY.md) để biết phạm vi xử lý dữ liệu cục bộ và
+hành vi network đã được audit.
+
+## Code signing policy
+
+Code signing thông qua SignPath Foundation đang được lên kế hoạch và chờ phê
+duyệt. Binary hiện tại không được tuyên bố là đã ký bởi SignPath. Xem
+[Code signing policy](docs/CODE_SIGNING_POLICY.md) để biết ranh giới binary do
+dự án sở hữu, vai trò phê duyệt và quy trình kiểm chứng dự kiến.
+
 ## Releases
 
 Binary, PDB, archive và installer không được commit. Quy trình phát hành dự kiến
-là clean Release build, test, package, kiểm tra manifest, Authenticode signing và
-sau đó mới công bố. Xem [`docs/releasing.md`](docs/releasing.md).
+là clean Release build, test, package, kiểm tra manifest và xác minh trạng thái
+ký trước khi công bố. Authenticode signing chỉ được thực hiện sau khi nhà cung
+cấp phê duyệt; initial unsigned release phải được ghi nhãn rõ. Xem
+[`docs/releasing.md`](docs/releasing.md).
+
+Initial release phải công bố rõ trạng thái ký, commit/run nguồn và SHA-256 theo
+[`Initial release checklist`](docs/INITIAL_RELEASE_CHECKLIST.md). Repository hiện
+chưa có GitHub Release.
 
 ## Đóng góp
 
